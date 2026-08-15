@@ -720,7 +720,7 @@
     <div class="zc-input-row">
       <textarea class="zc-textarea" id="zc-input" rows="3"
         placeholder="Paste $QR:ZCONFIG, $QR:ZCONFIG2, $QR:ZCONFIG3, $QR:ZCONFIG4, $QR:ZVALUE, $QR:ZVALUE2, $QR:DATACONFIG or $QR:CHECKTMR string here…"></textarea>
-      <button class="btn-run" style="flex-shrink:0" onclick="zcParse()">▶ Decode</button>
+      <button class="btn-run" style="flex-shrink:0" onclick="zcParse()">Decode</button>
     </div>
 
     <div id="zc-dcview-row" class="zc-filter-row" style="display:none">
@@ -806,7 +806,7 @@
               <textarea id="kb-admin-content" class="admin-textarea" maxlength="3000" required placeholder="Beliebige Information, Arbeitsanweisung oder Hinweis …"></textarea>
             </div>
             <div class="admin-field">
-              <label for="kb-admin-pdfs">PDF-Anhänge (optional)</label>
+              <label for="kb-admin-pdfs">PDF-Dokumentation (optional)</label>
               <input id="kb-admin-pdfs" class="admin-input" type="file" accept="application/pdf,.pdf" multiple aria-describedby="kb-admin-pdf-template-hint">
               <div id="kb-admin-pdf-template-hint" class="pdf-template-hint" aria-live="polite"></div>
             </div>
@@ -815,7 +815,7 @@
               <button type="button" class="admin-btn" onclick="kbAdminResetForm()">Zurücksetzen</button>
             </div>
           </form>
-          <p class="admin-hint">PDF-Anhänge bis 25 MB werden lokal in diesem Browser gespeichert.</p>
+          <p class="admin-hint">PDFs bis 25 MB werden gespeichert und beim Upload automatisch für die KI-Suche indexiert.</p>
         </div>
         <div>
           <div class="admin-tools">
@@ -827,7 +827,7 @@
       <div class="kb-ai-index">
         <div>
           <div class="kb-ai-index-title">KI-Suchindex</div>
-          <div class="kb-ai-index-copy">Erstellt Suchvektoren für alle freigegebenen Wissenseinträge.</div>
+          <div class="kb-ai-index-copy">Erstellt Suchvektoren für alle freigegebenen Wissenseinträge und PDF-Textabschnitte.</div>
         </div>
         <button id="kb-ai-index" type="button" class="admin-btn">KI-Suchindex aktualisieren</button>
       </div>
@@ -980,10 +980,12 @@ function kbPdfId() {
 
 function kbNormalizePdf(pdf) {
   if (!pdf || !pdf.id || !pdf.name) return null;
+  var contentSha256 = String(pdf.contentSha256 || pdf.content_sha256 || '').toLowerCase();
   return {
     id: String(pdf.id),
     name: String(pdf.name).slice(0, 255),
-    size: Math.max(0, parseInt(pdf.size, 10) || 0)
+    size: Math.max(0, parseInt(pdf.size, 10) || 0),
+    contentSha256: /^[a-f0-9]{64}$/.test(contentSha256) ? contentSha256 : ''
   };
 }
 
@@ -1022,13 +1024,13 @@ function kbOpenPdfDatabase() {
   return kbPdfDatabasePromise;
 }
 
-function kbStorePdf(file) {
+function kbStorePdf(file, contentSha256) {
   return kbOpenPdfDatabase().then(function(database) {
     return new Promise(function(resolve, reject) {
       var id = kbPdfId();
       var transaction = database.transaction(KB_PDF_STORE, 'readwrite');
       transaction.objectStore(KB_PDF_STORE).put({ id: id, name: file.name, type: file.type || 'application/pdf', data: file });
-      transaction.oncomplete = function() { resolve({ id: id, name: file.name, size: file.size }); };
+      transaction.oncomplete = function() { resolve({ id: id, name: file.name, size: file.size, contentSha256: contentSha256 || '' }); };
       transaction.onerror = function() { reject(transaction.error || new Error('PDF konnte nicht gespeichert werden.')); };
     });
   });
@@ -1058,6 +1060,60 @@ function kbDeletePdf(id) {
 function kbFormatFileSize(size) {
   if (size < 1024 * 1024) return Math.max(1, Math.round(size / 1024)) + ' KB';
   return (size / (1024 * 1024)).toFixed(1).replace('.', ',') + ' MB';
+}
+
+function kbIsPdfFile(file) {
+  return !!file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || ''));
+}
+
+async function kbPdfSha256(file) {
+  if (!window.crypto || !window.crypto.subtle) throw new Error('Die Duplikatprüfung wird von diesem Browser nicht unterstützt.');
+  var digest = await window.crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+  return Array.prototype.map.call(new Uint8Array(digest), function(byte) { return byte.toString(16).padStart(2, '0'); }).join('');
+}
+
+function kbStoredPdfReferences() {
+  var references = [];
+  kbEntries.forEach(function(entry) {
+    (entry.pdfs || []).forEach(function(pdf) {
+      references.push({ name: pdf.name, size: pdf.size, contentSha256: pdf.contentSha256 || '' });
+    });
+  });
+  return references;
+}
+
+function kbRemotePdfReferences() {
+  var references = [];
+  (typeof remoteKnowledgeEntries !== 'undefined' && Array.isArray(remoteKnowledgeEntries) ? remoteKnowledgeEntries : []).forEach(function(entry) {
+    (entry.knowledge_attachments || []).forEach(function(file) {
+      if (file.mime_type === 'application/pdf' && file.content_sha256) {
+        references.push({ name: file.original_name, size: file.size_bytes, contentSha256: file.content_sha256 });
+      } else if (file.mime_type === 'application/pdf') {
+        references.push({ name: file.original_name, size: file.size_bytes, contentSha256: '' });
+      }
+    });
+  });
+  return references;
+}
+
+async function kbPreparePdfFiles(files, references) {
+  var prepared = [];
+  var seen = {};
+  references = references || [];
+  for (var i = 0; i < files.length; i++) {
+    var file = files[i];
+    if (!kbIsPdfFile(file)) throw new Error('Nur PDF-Dateien können hinterlegt werden.');
+    if (file.size > KB_PDF_MAX_SIZE) throw new Error('„' + file.name + '“ ist größer als 25 MB.');
+    var contentSha256 = await kbPdfSha256(file);
+    if (seen[contentSha256]) throw new Error('„' + file.name + '“ wurde mehrfach ausgewählt.');
+    var existing = references.find(function(reference) { return reference.contentSha256 === contentSha256; });
+    if (existing) throw new Error('„' + file.name + '“ ist bereits als „' + existing.name + '“ hinterlegt.');
+    var legacyMatch = references.find(function(reference) { return !reference.contentSha256 && reference.name === file.name && Number(reference.size) === Number(file.size); });
+    if (legacyMatch) throw new Error('„' + file.name + '“ ist bereits mit gleichem Dateinamen und gleicher Größe hinterlegt.');
+    seen[contentSha256] = true;
+    prepared.push({ file: file, contentSha256: contentSha256 });
+  }
+  return prepared;
 }
 
 function kbSetPdfTemplateHint(message, type) {
@@ -1129,6 +1185,52 @@ async function kbDetectTemplateVehicleTitle(file) {
   }
 }
 
+function kbCleanPdfText(text) {
+  return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+function kbSplitPdfText(text) {
+  var chunks = [];
+  var remaining = kbCleanPdfText(text);
+  var maximumLength = 1500;
+  while (remaining.length) {
+    var cutAt = Math.min(maximumLength, remaining.length);
+    if (cutAt < remaining.length) {
+      var wordBoundary = remaining.lastIndexOf(' ', cutAt);
+      if (wordBoundary > 900) cutAt = wordBoundary;
+    }
+    var chunk = remaining.slice(0, cutAt).trim();
+    if (chunk.length >= 40) chunks.push(chunk);
+    remaining = remaining.slice(cutAt).trim();
+  }
+  return chunks;
+}
+
+async function kbExtractPdfSearchChunks(file) {
+  if (!window.pdfjsLib) throw new Error('Die PDF-Texterkennung ist nicht verfügbar. Bitte lade die Seite neu.');
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  var loadingTask = window.pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
+  var documentPdf;
+  var chunks = [];
+  try {
+    documentPdf = await loadingTask.promise;
+    for (var pageNumber = 1; pageNumber <= documentPdf.numPages; pageNumber++) {
+      var page = await documentPdf.getPage(pageNumber);
+      var textContent = await page.getTextContent();
+      var pageText = textContent.items.map(function(item) { return item.str || ''; }).join(' ');
+      kbSplitPdfText(pageText).forEach(function(content) {
+        chunks.push({ page_number: pageNumber, chunk_index: chunks.length, content: content });
+      });
+    }
+  } finally {
+    if (documentPdf) await documentPdf.destroy();
+    else if (loadingTask && typeof loadingTask.destroy === 'function') await loadingTask.destroy();
+  }
+  if (!chunks.length) throw new Error('Die PDF enthält keinen maschinenlesbaren Text.');
+  if (chunks.length > 600) throw new Error('Die PDF ist für die automatische KI-Indexierung zu umfangreich.');
+  return chunks;
+}
+
 async function kbAutofillTitleFromPdfTemplate() {
   var input = document.getElementById('kb-admin-pdfs');
   var titleInput = document.getElementById('kb-admin-title');
@@ -1136,6 +1238,7 @@ async function kbAutofillTitleFromPdfTemplate() {
   kbSetPdfTemplateHint('');
   if (!files.length) return;
   try {
+    await kbPreparePdfFiles(files, supabaseClient ? kbRemotePdfReferences() : kbStoredPdfReferences());
     for (var i = 0; i < files.length; i++) {
       var title = await kbDetectTemplateVehicleTitle(files[i]);
       if (!title) continue;
@@ -1144,7 +1247,7 @@ async function kbAutofillTitleFromPdfTemplate() {
       return;
     }
   } catch (error) {
-    kbSetPdfTemplateHint('Vorlagenerkennung konnte nicht ausgeführt werden. Der Titel bleibt unverändert.', 'error');
+    kbSetPdfTemplateHint(error && error.message ? error.message : 'Vorlagenerkennung konnte nicht ausgeführt werden. Der Titel bleibt unverändert.', 'error');
   }
 }
 
@@ -1454,20 +1557,12 @@ document.getElementById('kb-admin-form').addEventListener('submit', async functi
   });
   if (!entry) return;
   var files = Array.prototype.slice.call(document.getElementById('kb-admin-pdfs').files || []);
-  for (var i = 0; i < files.length; i++) {
-    var file = files[i];
-    if (file.type !== 'application/pdf' && !/\.pdf$/i.test(file.name)) {
-      alert('Nur PDF-Dateien können hinterlegt werden.');
-      return;
-    }
-    if (file.size > KB_PDF_MAX_SIZE) {
-      alert('„' + file.name + '“ ist größer als 25 MB.');
-      return;
-    }
-  }
+  var preparedFiles;
   try {
-    for (var fi = 0; fi < files.length; fi++) entry.pdfs.push(await kbStorePdf(files[fi]));
+    preparedFiles = await kbPreparePdfFiles(files, kbStoredPdfReferences());
+    for (var fi = 0; fi < preparedFiles.length; fi++) entry.pdfs.push(await kbStorePdf(preparedFiles[fi].file, preparedFiles[fi].contentSha256));
   } catch (err) {
+    kbSetPdfTemplateHint(err.message, 'error');
     alert('PDF konnte nicht gespeichert werden: ' + err.message);
     return;
   }
@@ -2779,9 +2874,13 @@ async function kbAiSearch() {
       var entry = byId[match.id];
       return entry ? Object.assign({}, entry, { ai_similarity: match.similarity }) : null;
     }).filter(Boolean);
+    var documentMatches = (response.data && response.data.documents) || [];
+    var matchCount = entries.length + documentMatches.length;
     setKbAiAnswer(response.data && response.data.answer || '');
-    setKbAiStatus('kb-ai-status', entries.length ? entries.length + ' passende Wissenseinträge gefunden.' : 'Keine passenden Wissenseinträge gefunden.', entries.length ? 'success' : '');
-    results.innerHTML = entries.length ? entries.map(function(entry) { return remoteEntryHtml(entry, {}); }).join('') : '';
+    setKbAiStatus('kb-ai-status', matchCount ? matchCount + ' passende Quellen gefunden.' : 'Keine passenden Wissenseinträge oder PDF-Stellen gefunden.', matchCount ? 'success' : '');
+    results.innerHTML = matchCount
+      ? entries.map(function(entry) { return remoteEntryHtml(entry, {}); }).join('') + documentMatches.map(kbAiDocumentResultHtml).join('')
+      : '';
   } catch (error) {
     setKbAiStatus('kb-ai-status', 'KI-Suche nicht verfügbar: ' + await functionErrorMessage(error), 'error');
   } finally {
@@ -2799,7 +2898,9 @@ async function kbAiIndexAll() {
     var response = await supabaseClient.functions.invoke('knowledge-ai', { body: { action: 'index_all' } });
     if (response.error) throw response.error;
     if (response.data && response.data.error) throw new Error(response.data.error);
-    setKbAiStatus('kb-ai-index-status', ((response.data && response.data.indexed) || 0) + ' freigegebene Einträge wurden indexiert.', 'success');
+    var entryCount = (response.data && response.data.indexed) || 0;
+    var documentChunkCount = (response.data && response.data.document_chunks_indexed) || 0;
+    setKbAiStatus('kb-ai-index-status', entryCount + ' freigegebene Einträge und ' + documentChunkCount + ' PDF-Textabschnitte wurden indexiert.', 'success');
   } catch (error) {
     setKbAiStatus('kb-ai-index-status', 'Indexierung nicht verfügbar: ' + await functionErrorMessage(error), 'error');
   } finally {
@@ -2855,6 +2956,20 @@ function remoteAttachmentHtml(entry, editable) {
   }).join('') + '</div>';
 }
 
+function kbAiDocumentResultHtml(match) {
+  var excerpt = String(match.content || '').replace(/\s+/g, ' ').trim();
+  if (excerpt.length > 900) excerpt = excerpt.slice(0, 897).replace(/\s+\S*$/, '') + ' …';
+  return '<article class="admin-feature kb-card">' +
+    '<div class="admin-feature-head"><span class="admin-badge">PDF-Treffer</span><span class="admin-badge">Seite ' + zcEsc(match.page_number) + '</span></div>' +
+    '<div class="kb-card-body">' +
+      '<div class="kb-card-title">' + zcEsc(match.document_name || 'PDF-Dokumentation') + '</div>' +
+      (match.entry_title ? '<div class="kb-card-meta">Wissenseintrag: ' + zcEsc(match.entry_title) + '</div>' : '') +
+      '<div class="admin-feature-notes" style="white-space:pre-wrap">' + zcEsc(excerpt) + '</div>' +
+      '<div class="kb-pdf-list"><button class="admin-mini-btn kb-pdf-btn" type="button" onclick="openRemoteAttachment(\'' + match.attachment_id + '\',' + Number(match.page_number || 1) + ')">PDF auf Seite ' + zcEsc(match.page_number) + ' öffnen</button></div>' +
+    '</div>' +
+  '</article>';
+}
+
 function remoteEntryHtml(entry, options) {
   options = options || {};
   var actions = '';
@@ -2900,7 +3015,7 @@ async function hydrateRemoteImagePreviews(entries) {
 async function loadRemoteKnowledge() {
   if (!supabaseClient || !currentSession) return;
   var response = await supabaseClient.from('knowledge_entries')
-    .select('id,category,title,command,content,status,submitted_by,created_at,updated_at,knowledge_attachments(id,storage_path,original_name,mime_type,size_bytes)')
+    .select('id,category,title,command,content,status,submitted_by,created_at,updated_at,knowledge_attachments(id,storage_path,original_name,mime_type,size_bytes,content_sha256)')
     .order('updated_at', { ascending: false });
   if (response.error) {
     console.warn(response.error.message);
@@ -2914,19 +3029,55 @@ async function loadRemoteKnowledge() {
 }
 
 async function uploadRemoteAttachments(entryId, files) {
+  var preparedPdfs = await kbPreparePdfFiles(Array.from(files).filter(kbIsPdfFile), kbRemotePdfReferences());
+  var uploadedAttachments = [];
   for (var i = 0; i < files.length; i++) {
     var file = files[i];
     if (!attachmentTypeAllowed(file)) throw new Error('Nur JPG, PNG, WebP und PDF können hochgeladen werden.');
     if (file.size > REMOTE_ATTACHMENT_MAX_SIZE) throw new Error('„' + file.name + '“ ist größer als 25 MB.');
+    var isPdf = kbIsPdfFile(file);
+    var resolvedMimeType = isPdf ? 'application/pdf' : (file.type || 'image/jpeg');
+    var preparedPdf = isPdf ? preparedPdfs.find(function(item) { return item.file === file; }) : null;
+    var contentSha256 = preparedPdf ? preparedPdf.contentSha256 : null;
     var cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
     var path = currentSession.user.id + '/' + entryId + '/' + crypto.randomUUID() + '-' + cleanName;
-    var upload = await supabaseClient.storage.from('knowledge-files').upload(path, file, { contentType: file.type, upsert: false });
+    var upload = await supabaseClient.storage.from('knowledge-files').upload(path, file, { contentType: resolvedMimeType, upsert: false });
     if (upload.error) throw upload.error;
     var metadata = await supabaseClient.from('knowledge_attachments').insert({
-      entry_id: entryId, storage_path: path, original_name: file.name, mime_type: file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'), size_bytes: file.size, uploaded_by: currentSession.user.id
-    });
-    if (metadata.error) throw metadata.error;
+      entry_id: entryId, storage_path: path, original_name: file.name, mime_type: resolvedMimeType, size_bytes: file.size, content_sha256: contentSha256, uploaded_by: currentSession.user.id
+    }).select('id,original_name,mime_type').single();
+    if (metadata.error) {
+      await supabaseClient.storage.from('knowledge-files').remove([path]);
+      if (metadata.error.code === '23505') throw new Error('„' + file.name + '“ ist bereits in der Wissensdatenbank hinterlegt.');
+      throw metadata.error;
+    }
+    uploadedAttachments.push({ attachment: metadata.data, file: file, isPdf: isPdf });
   }
+  return uploadedAttachments;
+}
+
+async function kbIndexPdfForSearch(entryId, attachment, file) {
+  kbSetPdfTemplateHint('PDF wird für die KI-Suche aufbereitet …');
+  var chunks = await kbExtractPdfSearchChunks(file);
+  var remove = await supabaseClient.from('knowledge_document_chunks').delete().eq('attachment_id', attachment.id);
+  if (remove.error) throw remove.error;
+  for (var offset = 0; offset < chunks.length; offset += 50) {
+    var batch = chunks.slice(offset, offset + 50).map(function(chunk) {
+      return {
+        attachment_id: attachment.id,
+        entry_id: entryId,
+        page_number: chunk.page_number,
+        chunk_index: chunk.chunk_index,
+        content: chunk.content
+      };
+    });
+    var stored = await supabaseClient.from('knowledge_document_chunks').insert(batch);
+    if (stored.error) throw stored.error;
+  }
+  var indexed = await supabaseClient.functions.invoke('knowledge-ai', { body: { action: 'index_document', attachment_id: attachment.id } });
+  if (indexed.error) throw indexed.error;
+  if (indexed.data && indexed.data.error) throw new Error(indexed.data.error);
+  return (indexed.data && indexed.data.document_chunks_indexed) || chunks.length;
 }
 
 async function submitTechnicianEntry() {
@@ -2961,6 +3112,14 @@ async function kbAdminSubmitRemote() {
     command: document.getElementById('kb-admin-command').value.trim() || null, content: document.getElementById('kb-admin-content').value.trim()
   };
   if (!payload.category || !payload.title || !payload.content) return;
+  var files = Array.from(document.getElementById('kb-admin-pdfs').files || []);
+  try {
+    await kbPreparePdfFiles(files, kbRemotePdfReferences());
+  } catch (err) {
+    kbSetPdfTemplateHint(err.message, 'error');
+    alert('PDF konnte nicht gespeichert werden: ' + err.message);
+    return;
+  }
   var response;
   if (id) response = await supabaseClient.from('knowledge_entries').update(payload).eq('id', id).select().single();
   else {
@@ -2968,8 +3127,18 @@ async function kbAdminSubmitRemote() {
     response = await supabaseClient.from('knowledge_entries').insert(payload).select().single();
   }
   if (response.error) { alert('Speichern fehlgeschlagen: ' + response.error.message); return; }
-  try { await uploadRemoteAttachments(response.data.id, Array.from(document.getElementById('kb-admin-pdfs').files || [])); }
-  catch (err) { alert('Eintrag gespeichert, Anhang fehlgeschlagen: ' + err.message); }
+  try {
+    var uploadedAttachments = await uploadRemoteAttachments(response.data.id, files);
+    var indexedChunks = 0;
+    for (var attachmentIndex = 0; attachmentIndex < uploadedAttachments.length; attachmentIndex++) {
+      var uploaded = uploadedAttachments[attachmentIndex];
+      if (uploaded.isPdf) indexedChunks += await kbIndexPdfForSearch(response.data.id, uploaded.attachment, uploaded.file);
+    }
+    if (indexedChunks) kbSetPdfTemplateHint('PDF für die KI-Suche indexiert: ' + indexedChunks + ' Textabschnitte.', 'success');
+  } catch (err) {
+    kbSetPdfTemplateHint('PDF wurde gespeichert, konnte aber nicht vollständig indexiert werden: ' + err.message, 'error');
+    alert('Eintrag gespeichert, Anhang oder PDF-Index fehlgeschlagen: ' + err.message);
+  }
   if (response.data.status === 'published' && !await indexRemoteKnowledgeEntry(response.data.id)) {
     alert('Eintrag gespeichert. Der KI-Suchindex konnte noch nicht aktualisiert werden. Bitte prüfe die KI-Konfiguration im Admin-Bereich.');
   }
@@ -3019,13 +3188,13 @@ async function deleteRemoteAttachment(entryId, attachmentId) {
   await loadRemoteKnowledge();
 }
 
-async function openRemoteAttachment(id) {
+async function openRemoteAttachment(id, pageNumber) {
   var attachment;
   remoteKnowledgeEntries.some(function(entry) { attachment = (entry.knowledge_attachments || []).find(function(item) { return item.id === id; }); return !!attachment; });
   if (!attachment) return;
   var signed = await supabaseClient.storage.from('knowledge-files').createSignedUrl(attachment.storage_path, 60);
   if (signed.error) { alert('Anhang konnte nicht geöffnet werden: ' + signed.error.message); return; }
-  window.open(signed.data.signedUrl, '_blank');
+  window.open(signed.data.signedUrl + (pageNumber ? '#page=' + encodeURIComponent(pageNumber) : ''), '_blank');
 }
 
 function kbAdminRender() {

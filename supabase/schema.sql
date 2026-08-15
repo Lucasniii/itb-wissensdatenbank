@@ -32,6 +32,7 @@ create table if not exists public.knowledge_attachments (
   original_name text not null,
   mime_type text not null check (mime_type in ('application/pdf', 'image/jpeg', 'image/png', 'image/webp')),
   size_bytes bigint not null check (size_bytes > 0 and size_bytes <= 26214400),
+  content_sha256 text check (content_sha256 is null or content_sha256 ~ '^[a-f0-9]{64}$'),
   uploaded_by uuid not null references auth.users(id) on delete cascade,
   created_at timestamptz not null default now()
 );
@@ -39,6 +40,9 @@ create table if not exists public.knowledge_attachments (
 create index if not exists knowledge_entries_status_idx on public.knowledge_entries(status);
 create index if not exists knowledge_entries_submitted_by_idx on public.knowledge_entries(submitted_by);
 create index if not exists knowledge_attachments_entry_id_idx on public.knowledge_attachments(entry_id);
+create unique index if not exists knowledge_attachments_pdf_content_sha256_unique
+  on public.knowledge_attachments (content_sha256)
+  where mime_type = 'application/pdf' and content_sha256 is not null;
 
 create or replace function public.handle_new_user()
 returns trigger
@@ -215,6 +219,46 @@ create extension if not exists vector with schema extensions;
 alter table public.knowledge_entries
   add column if not exists embedding extensions.vector(1536);
 
+-- PDF-Dokumentation wird seitenweise in durchsuchbare Textabschnitte zerlegt.
+create table if not exists public.knowledge_document_chunks (
+  id uuid primary key default gen_random_uuid(),
+  attachment_id uuid not null references public.knowledge_attachments(id) on delete cascade,
+  entry_id uuid not null references public.knowledge_entries(id) on delete cascade,
+  page_number integer not null check (page_number >= 1),
+  chunk_index integer not null check (chunk_index >= 0),
+  content text not null check (char_length(content) between 1 and 4000),
+  embedding extensions.vector(1536),
+  created_at timestamptz not null default now(),
+  unique (attachment_id, chunk_index)
+);
+
+create index if not exists knowledge_document_chunks_attachment_idx on public.knowledge_document_chunks(attachment_id);
+create index if not exists knowledge_document_chunks_entry_idx on public.knowledge_document_chunks(entry_id);
+
+alter table public.knowledge_document_chunks enable row level security;
+
+drop policy if exists "Permitted document chunks are readable" on public.knowledge_document_chunks;
+create policy "Permitted document chunks are readable"
+  on public.knowledge_document_chunks for select to authenticated
+  using (exists (
+    select 1
+    from public.knowledge_entries e
+    where e.id = entry_id
+      and (e.status = 'published' or e.submitted_by = auth.uid() or public.is_admin())
+  ));
+
+drop policy if exists "Admins index document chunks" on public.knowledge_document_chunks;
+create policy "Admins index document chunks"
+  on public.knowledge_document_chunks for insert to authenticated
+  with check (public.is_admin());
+
+drop policy if exists "Admins remove document chunks" on public.knowledge_document_chunks;
+create policy "Admins remove document chunks"
+  on public.knowledge_document_chunks for delete to authenticated
+  using (public.is_admin());
+
+grant select, insert, delete on public.knowledge_document_chunks to authenticated;
+
 create or replace function public.match_knowledge_entries(
   query_embedding extensions.vector(1536),
   match_count integer default 6,
@@ -241,6 +285,47 @@ as $$
 $$;
 
 grant execute on function public.match_knowledge_entries(extensions.vector, integer, double precision) to authenticated;
+
+create or replace function public.match_knowledge_document_chunks(
+  query_embedding extensions.vector(1536),
+  match_count integer default 10,
+  match_threshold double precision default 0.20
+)
+returns table (
+  id uuid,
+  entry_id uuid,
+  attachment_id uuid,
+  document_name text,
+  entry_title text,
+  page_number integer,
+  content text,
+  similarity double precision
+)
+language sql
+stable
+security invoker
+set search_path = public, extensions
+as $$
+  select
+    c.id,
+    c.entry_id,
+    c.attachment_id,
+    a.original_name as document_name,
+    e.title as entry_title,
+    c.page_number,
+    c.content,
+    1 - (c.embedding <=> query_embedding) as similarity
+  from public.knowledge_document_chunks c
+  join public.knowledge_attachments a on a.id = c.attachment_id
+  join public.knowledge_entries e on e.id = c.entry_id
+  where e.status = 'published'
+    and c.embedding is not null
+    and 1 - (c.embedding <=> query_embedding) >= match_threshold
+  order by c.embedding <=> query_embedding asc
+  limit least(greatest(match_count, 1), 15);
+$$;
+
+grant execute on function public.match_knowledge_document_chunks(extensions.vector, integer, double precision) to authenticated;
 
 -- Nach der ersten Registrierung genau EINEN Account zum Admin machen:
 -- update public.profiles set role = 'admin' where email = 'DEINE-ADMIN-EMAIL';

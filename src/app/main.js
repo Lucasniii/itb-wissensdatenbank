@@ -33,6 +33,24 @@ document.querySelectorAll('.admin-subtab').forEach(function(button) {
   button.addEventListener('click', function() { showAdminSubview(button.dataset.adminView); });
 });
 
+// Auswahlfeld im Editor und Vorschlagsliste im Entwurfs-Formular stammen aus
+// derselben Liste. Vorher standen die Kategorien dreimal im Dokument.
+function kbFillCategoryChoices() {
+  var select = document.getElementById('notebook-category');
+  if (select) {
+    select.innerHTML = NOTEBOOK_CATEGORIES.map(function(value) {
+      return '<option value="' + zcEsc(value) + '">' + zcEsc(value) + '</option>';
+    }).join('');
+  }
+  var datalist = document.getElementById('kb-category-options');
+  if (datalist) {
+    datalist.innerHTML = NOTEBOOK_CATEGORIES.map(function(value) {
+      return '<option value="' + zcEsc(value) + '"></option>';
+    }).join('');
+  }
+}
+
+kbFillCategoryChoices();
 adminRender();
 notebookRender();
 

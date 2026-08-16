@@ -196,14 +196,8 @@
         </div>
         <div class="admin-field">
           <label for="notebook-category">Kategorie</label>
-          <select id="notebook-category" class="admin-input" required>
-            <option value="Anschlusspläne">Anschlusspläne</option>
-            <option value="Sonderfunktionen">Sonderfunktionen</option>
-            <option value="Befehle">Befehle</option>
-            <option value="Hardware / Einbau">Hardware / Einbau</option>
-            <option value="Fehlerbehebung">Fehlerbehebung</option>
-            <option value="Kundenspezifisch">Kundenspezifisch</option>
-          </select>
+          <!-- Die Auswahl entsteht aus NOTEBOOK_CATEGORIES, siehe kbFillCategoryChoices. -->
+          <select id="notebook-category" class="admin-input" required></select>
         </div>
         <div class="admin-field" id="notebook-command-field" hidden>
           <label for="notebook-command">Befehl (optional)</label>
@@ -411,6 +405,7 @@
             <div class="admin-field">
               <label for="tech-category">Kategorie</label>
               <input id="tech-category" class="admin-input" type="text" list="kb-category-options" maxlength="80" required placeholder="Kategorie auswählen oder eingeben …">
+              <datalist id="kb-category-options"></datalist>
             </div>
             <div class="admin-field">
               <label for="tech-title">Titel</label>

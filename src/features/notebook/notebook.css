@@ -29,6 +29,9 @@
   .notebook-inline-image:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
   .notebook-inline-image:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .notebook-inline-image-placeholder { display: inline-block; margin: 7px; padding: 8px; border: 1px dashed var(--border); color: var(--muted); font-size: 0.65rem; }
+  /* Eine platzierte PDF ist technisch dasselbe Element wie ein Bild. Der helle
+     Rahmen zeigt, dass hier eine Seite steht und kein Foto. */
+  .notebook-inline-pdf { background: #fff; border-color: rgba(203,214,83,0.5); object-fit: contain; object-position: top; }
   /* Die Leiste soll auf jedem System gleich aussehen. Darum feste Masse statt
      Innenabstaenden, eine ausdrueckliche Schrift statt inherit, gezeichnete
      Symbole statt Sonderzeichen aus Systemschriften und ein Auswahlfeld ohne

@@ -1110,7 +1110,9 @@ async function kbAdminSubmitRemote() {
     alert(duplicateTitleMessage);
     return;
   }
-  var files = Array.from(document.getElementById('kb-admin-pdfs').files || []);
+  // Hochgeladen wird in der Bibliothek, das Formular hat kein Dateifeld mehr.
+  var pdfInput = document.getElementById('kb-admin-pdfs');
+  var files = Array.from(pdfInput && pdfInput.files || []);
   var replacementInput = document.getElementById('kb-admin-replace-pdf');
   var replacementAttachmentId = replacementInput && replacementInput.dataset.attachmentId || '';
   var replacementFile = replacementInput && replacementInput.files && replacementInput.files[0];

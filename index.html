@@ -301,8 +301,6 @@
               <textarea id="kb-admin-content" class="admin-textarea" maxlength="3000"></textarea>
             </div>
             <div class="admin-field">
-              <label id="kb-admin-pdfs-label" for="kb-admin-pdfs">PDF-Dokumentation (optional)</label>
-              <input id="kb-admin-pdfs" class="admin-input" type="file" accept="application/pdf,.pdf" multiple aria-describedby="kb-admin-pdf-template-hint">
               <input id="kb-admin-replace-pdf" type="file" accept="application/pdf,.pdf" hidden>
               <div id="kb-admin-current-attachments" class="kb-edit-attachments" hidden></div>
               <div id="kb-admin-pdf-template-hint" class="pdf-template-hint" aria-live="polite"></div>
@@ -312,7 +310,7 @@
               <button type="button" class="admin-btn" onclick="kbAdminResetForm()">Zurücksetzen</button>
             </div>
           </form>
-          <p class="admin-hint">PDFs bis 25 MB werden gespeichert und beim Upload automatisch für die KI-Suche indexiert.</p>
+          <p class="admin-hint">Dateien werden im Unterreiter Bibliothek hinzugefügt: dort landen sie im Text des Eintrags und lassen sich frei anordnen. PDFs bis 25 MB werden automatisch für die KI-Suche indexiert.</p>
           <section class="kb-pdf-import" aria-labelledby="kb-admin-import-title">
             <h3 id="kb-admin-import-title">PDF-Schnellimport</h3>
             <p class="kb-pdf-import-copy">Jede ausgewählte Anschlussplan-PDF wird ausgelesen und als eigener Entwurf angelegt. Der Titel wird automatisch vorbereitet; erst nach deiner Freigabe ist der Eintrag in der KI-Suche sichtbar.</p>

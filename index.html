@@ -467,7 +467,8 @@
             </div>
             <div class="admin-field">
               <label for="tech-files">Fotos oder PDFs (optional)</label>
-              <input id="tech-files" class="admin-input" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf" multiple>
+              <input id="tech-files" class="admin-input" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf" multiple aria-describedby="tech-files-hint">
+              <div id="tech-files-hint" class="admin-hint">Wird unter dem Text abgelegt und lässt sich später frei verschieben.</div>
             </div>
             <div class="admin-actions">
               <button type="submit" class="admin-btn primary">Als Entwurf einreichen</button>

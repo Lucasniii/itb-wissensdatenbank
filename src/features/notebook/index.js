@@ -221,10 +221,17 @@ function notebookMakeInlineImage(options, editable) {
   image.className = 'notebook-inline-image';
   image.src = options.url;
   image.alt = options.name || 'Bild in Notiz';
-  image.title = editable ? 'Ziehen zum Verschieben. Angeklickt bewegen die Pfeiltasten das Bild, mit Shift feiner.' : image.alt;
   image.draggable = false;
   image.contentEditable = 'false';
-  image.tabIndex = editable ? 0 : -1;
+  // In der gespeicherten Notiz laesst sich das Bild oeffnen, im Editor
+  // verschieben. Beides ueber die Tastatur erreichbar, darum immer im Tab-Lauf.
+  image.tabIndex = 0;
+  if (editable) {
+    image.title = 'Ziehen zum Verschieben. Angeklickt bewegen die Pfeiltasten das Bild, mit Shift feiner.';
+  } else {
+    image.title = 'Oeffnen: ' + image.alt;
+    image.setAttribute('role', 'button');
+  }
   if (options.localId) image.dataset.notebookLocalId = options.localId;
   if (options.attachmentId) image.dataset.notebookImageId = options.attachmentId;
   notebookSetImagePosition(image, options.x, options.y);
@@ -617,7 +624,35 @@ async function notebookSave() {
 // Event bindings live with the Notebook feature so this area can evolve independently.
 document.getElementById('notebook-form').addEventListener('submit', async function(event) { event.preventDefault(); await notebookSave(); });
 document.getElementById('notebook-inline-images').addEventListener('change', notebookHandleInlineImageSelection);
-// Notizinhalte werden auch ausserhalb dieses Features gerendert (Wissensdatenbank).
+// Gerenderte Notizen entstehen ueber innerHTML, dabei gehen Listener an den
+// Bildern verloren. Klick und Tastatur laufen darum ueber das Dokument. Das gilt
+// auch fuer Notizen, die die Wissensdatenbank zeichnet.
+function notebookRenderedImage(target) {
+  if (!target || !target.classList || !target.classList.contains('notebook-inline-image')) return null;
+  if (!target.closest || !target.closest('.notebook-rendered-content')) return null;
+  return target.dataset.notebookImageId ? target : null;
+}
+
+function notebookOpenRenderedImage(image) {
+  if (typeof openRemoteAttachment !== 'function') return;
+  openRemoteAttachment(image.dataset.notebookImageId);
+}
+
+document.addEventListener('click', function(event) {
+  var image = notebookRenderedImage(event.target);
+  if (!image) return;
+  event.preventDefault();
+  notebookOpenRenderedImage(image);
+});
+
+document.addEventListener('keydown', function(event) {
+  if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
+  var image = notebookRenderedImage(event.target);
+  if (!image) return;
+  event.preventDefault();
+  notebookOpenRenderedImage(image);
+});
+
 // Bilder melden ihr Laden nicht nach oben, darum hier in der Capture-Phase: so
 // bekommt jeder Container seine Hoehe, ohne dass die gemeinsame Datei etwas davon
 // wissen muss.

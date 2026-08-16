@@ -459,7 +459,6 @@
           <button type="button" class="admin-mini-btn" data-kb-pdf-tool="text" onclick="kbPdfEditorSetTool('text')">Text</button>
           <button type="button" class="admin-mini-btn" data-kb-pdf-tool="marker" onclick="kbPdfEditorSetTool('marker')">Markieren</button>
           <button type="button" class="admin-mini-btn" data-kb-pdf-tool="arrow" onclick="kbPdfEditorSetTool('arrow')">Zeiger</button>
-          <button type="button" class="admin-mini-btn" data-kb-pdf-tool="image" onclick="kbPdfEditorSetTool('image')">Foto</button>
         </div>
         <div class="admin-field">
           <label for="kb-pdf-editor-text">Text für Hinweis oder Auswahl</label>
@@ -470,16 +469,14 @@
           <input id="kb-pdf-editor-size" class="admin-input" type="number" min="8" max="48" value="14">
         </div>
         <div class="admin-field">
-          <label for="kb-pdf-editor-color">Farbe</label>
-          <input id="kb-pdf-editor-color" class="admin-input" type="color" value="#000000">
+          <label for="kb-pdf-editor-line">Pfeilstärke</label>
+          <input id="kb-pdf-editor-line" class="admin-input" type="number" min="1.5" max="10" step="0.5" value="2.5">
         </div>
         <div class="admin-field">
-          <label for="kb-pdf-editor-image">Foto einfügen</label>
-          <label for="kb-pdf-editor-image" class="admin-mini-btn">Foto auswählen</label>
-          <input id="kb-pdf-editor-image" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png">
-          <div id="kb-pdf-editor-image-name" class="kb-pdf-editor-image-name"></div>
+          <label for="kb-pdf-editor-color">Farbe</label>
+          <input id="kb-pdf-editor-color" class="admin-input kb-pdf-editor-color" type="color" value="#cc0000">
         </div>
-        <p id="kb-pdf-editor-help" class="kb-pdf-editor-help">Text oder Foto auf die gewünschte Position klicken. Bei Markieren und Zeiger mit gedrückter Maustaste ziehen. Mit Auswahl kannst du Elemente verschieben, ihren Text ändern oder löschen. Beim ausgewählten Zeiger drehen oder verlängern die runden Griffe an seinen Enden den Pfeil.</p>
+        <p id="kb-pdf-editor-help" class="kb-pdf-editor-help">Text auf die gewünschte Position klicken. Bei Markieren und Zeiger mit gedrückter Maustaste ziehen. Mit Auswahl kannst du Elemente verschieben, ihren Text ändern oder löschen. Beim ausgewählten Zeiger drehen oder verlängern die runden Griffe an seinen Enden den Pfeil.</p>
         <div class="admin-actions">
           <button id="kb-pdf-editor-apply-selection" type="button" class="admin-mini-btn" onclick="kbPdfEditorApplySelectedStyle()" disabled>Auswahl aktualisieren</button>
           <button id="kb-pdf-editor-delete-selection" type="button" class="admin-mini-btn delete" onclick="kbPdfEditorDeleteSelected()" disabled>Auswahl löschen</button>

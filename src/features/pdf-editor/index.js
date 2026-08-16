@@ -25,6 +25,13 @@ function kbPdfEditorStoredLayer(attachment) {
   return Array.isArray(layers) ? (layers[0] || null) : (layers || null);
 }
 
+// Pfeilstaerke aus der Seitenleiste. Die Grenzen sind dieselben wie beim
+// Einlesen gespeicherter Zeiger.
+function kbPdfEditorLineWidth() {
+  var input = document.getElementById('kb-pdf-editor-line');
+  return kbPdfEditorClamp(input && input.value, 1.5, 10, 2.5);
+}
+
 function kbPdfEditorStoredColor(value) {
   return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? String(value) : '#000000';
 }
@@ -79,7 +86,7 @@ function kbPdfEditorSetDocumentLabels(kind, filename) {
   var save = document.getElementById('kb-pdf-editor-save');
   if (title) title.textContent = kind + ' bearbeiten: ' + (filename || 'Unbenannter Anhang');
   if (text) text.placeholder = 'Hinweis eingeben, Werkzeug Text wählen und auf ' + (isImage ? 'das Bild' : 'die PDF') + ' klicken …';
-  if (help) help.textContent = 'Text oder Foto auf die gewünschte Position klicken. Bei Markieren und Zeiger mit gedrückter Maustaste ziehen. Mit Auswahl kannst du Elemente verschieben, ihren Text ändern oder löschen. Beim ausgewählten Zeiger drehen oder verlängern die runden Griffe an seinen Enden den Pfeil.';
+  if (help) help.textContent = 'Text auf die gewünschte Position klicken. Bei Markieren und Zeiger mit gedrückter Maustaste ziehen. Mit Auswahl kannst du Elemente verschieben, ihren Text ändern oder löschen. Beim ausgewählten Zeiger drehen oder verlängern die runden Griffe an seinen Enden den Pfeil.';
   if (footer) footer.textContent = 'Das bearbeitete ' + kind + ' wird ersetzt; Text, Markierungen und Zeiger bleiben als editierbare Ebenen erhalten.';
   if (save) save.textContent = kind + ' speichern & ersetzen';
 }
@@ -170,6 +177,8 @@ function kbPdfEditorUpdateSelectionUI() {
     document.getElementById('kb-pdf-editor-color').value = selected.color || '#000000';
   } else if (selected.type === 'marker' || selected.type === 'arrow') {
     document.getElementById('kb-pdf-editor-color').value = selected.color || '#000000';
+    // Beim Auswaehlen zeigt das Feld die Staerke des Zeigers, statt sie zu ueberschreiben.
+    if (selected.type === 'arrow') document.getElementById('kb-pdf-editor-line').value = selected.lineWidth || 2.5;
   }
 }
 
@@ -192,6 +201,7 @@ function kbPdfEditorApplySelectedStyle() {
     selected.color = color;
   } else if (selected.type === 'marker' || selected.type === 'arrow') {
     selected.color = color;
+    if (selected.type === 'arrow') selected.lineWidth = kbPdfEditorLineWidth();
   } else {
     return;
   }
@@ -205,6 +215,14 @@ function kbPdfEditorApplySelectedColor(showStatus) {
   selected.color = document.getElementById('kb-pdf-editor-color').value;
   kbPdfEditorRedraw();
   if (showStatus) kbPdfEditorStatus('Farbe der Auswahl aktualisiert.', 'success');
+}
+
+function kbPdfEditorApplySelectedLineWidth(showStatus) {
+  var selected = kbPdfEditorSelectedAnnotation();
+  if (!selected || selected.type !== 'arrow') return;
+  selected.lineWidth = kbPdfEditorLineWidth();
+  kbPdfEditorRedraw();
+  if (showStatus) kbPdfEditorStatus('Stärke des Zeigers aktualisiert.', 'success');
 }
 
 function kbPdfEditorApplySelectedText(showStatus) {
@@ -534,8 +552,6 @@ async function kbOpenDirectPdfEditor(attachmentId) {
   overlay.classList.add('visible');
   kbPdfEditorSetDocumentLabels('PDF', located.attachment.original_name);
   document.getElementById('kb-pdf-editor-text').value = '';
-  document.getElementById('kb-pdf-editor-image').value = '';
-  document.getElementById('kb-pdf-editor-image-name').textContent = '';
   kbPdfEditorStatus('PDF wird geladen …');
   try {
     var signed = await supabaseClient.storage.from('knowledge-files').createSignedUrl(baseStoragePath, 60);
@@ -556,7 +572,6 @@ async function kbOpenDirectPdfEditor(attachmentId) {
       annotations: savedAnnotations,
       baseStoragePath: baseStoragePath,
       tool: 'select',
-      pendingImage: null,
       markerDraft: null,
       arrowDraft: null,
       selectedAnnotationIndex: -1,
@@ -588,8 +603,6 @@ async function kbOpenDirectImageEditor(attachmentId) {
   overlay.classList.add('visible');
   kbPdfEditorSetDocumentLabels('Bild', located.attachment.original_name);
   document.getElementById('kb-pdf-editor-text').value = '';
-  document.getElementById('kb-pdf-editor-image').value = '';
-  document.getElementById('kb-pdf-editor-image-name').textContent = '';
   kbPdfEditorStatus('Bild wird geladen …');
   try {
     var signed = await supabaseClient.storage.from('knowledge-files').createSignedUrl(baseStoragePath, 60);
@@ -607,7 +620,6 @@ async function kbOpenDirectImageEditor(attachmentId) {
       annotations: savedAnnotations,
       baseStoragePath: baseStoragePath,
       tool: 'select',
-      pendingImage: null,
       markerDraft: null,
       arrowDraft: null,
       selectedAnnotationIndex: -1,
@@ -699,7 +711,7 @@ function kbPdfEditorPointerDown(event) {
     return;
   }
   if (state.tool === 'arrow') {
-    state.arrowDraft = { type: 'arrow', pageNumber: point.pageNumber, x: point.x, y: point.y, endX: point.x, endY: point.y, color: document.getElementById('kb-pdf-editor-color').value, lineWidth: 2.5 };
+    state.arrowDraft = { type: 'arrow', pageNumber: point.pageNumber, x: point.x, y: point.y, endX: point.x, endY: point.y, color: document.getElementById('kb-pdf-editor-color').value, lineWidth: kbPdfEditorLineWidth() };
     event.currentTarget.setPointerCapture(event.pointerId);
     return;
   }
@@ -714,19 +726,6 @@ function kbPdfEditorPointerDown(event) {
     kbPdfEditorRedraw();
     kbPdfEditorStatus('Text eingefügt. Jetzt direkt auf den Text ziehen, um ihn zu verschieben.', 'success');
     return;
-  }
-  if (state.tool === 'image') {
-    if (!state.pendingImage) { kbPdfEditorStatus('Wähle zuerst ein Foto aus.', 'error'); return; }
-    var image = state.pendingImage;
-    var width = Math.min(0.45, Math.max(0.12, 0.28));
-    state.annotations.push({ type: 'image', pageNumber: point.pageNumber, x: Math.min(point.x, 1 - width), y: point.y, width: width, height: Math.min(0.6, width * image.height / image.width), dataUrl: image.dataUrl, mimeType: image.mimeType });
-    state.selectedAnnotationIndex = state.annotations.length - 1;
-    kbPdfEditorUpdateSelectionUI();
-    state.pendingImage = null;
-    document.getElementById('kb-pdf-editor-image').value = '';
-    document.getElementById('kb-pdf-editor-image-name').textContent = '';
-    kbPdfEditorRedraw();
-    kbPdfEditorStatus('Foto eingefügt.', 'success');
   }
 }
 
@@ -860,41 +859,6 @@ function kbPdfEditorClearCurrentPage() {
   kbPdfEditorStatus('Seite wurde geleert. Du kannst die PDF jetzt speichern, auch wenn keine Ergänzungen mehr vorhanden sind.', 'success');
 }
 
-async function kbPdfEditorSelectImage() {
-  var state = kbPdfEditorState;
-  var input = document.getElementById('kb-pdf-editor-image');
-  var label = document.getElementById('kb-pdf-editor-image-name');
-  var file = input.files && input.files[0];
-  if (!state || !file) return;
-  if (!/^image\/(jpeg|png)$/.test(file.type) || file.size > 5 * 1024 * 1024) {
-    input.value = '';
-    label.textContent = '';
-    kbPdfEditorStatus('Bitte verwende ein JPG oder PNG bis 5 MB.', 'error');
-    return;
-  }
-  try {
-    var dataUrl = await new Promise(function(resolve, reject) {
-      var reader = new FileReader();
-      reader.onload = function() { resolve(reader.result); };
-      reader.onerror = function() { reject(new Error('Foto konnte nicht gelesen werden.')); };
-      reader.readAsDataURL(file);
-    });
-    var dimensions = await new Promise(function(resolve, reject) {
-      var image = new Image();
-      image.onload = function() { resolve({ width: image.naturalWidth, height: image.naturalHeight }); };
-      image.onerror = function() { reject(new Error('Foto konnte nicht geöffnet werden.')); };
-      image.src = dataUrl;
-    });
-    state.pendingImage = { dataUrl: dataUrl, mimeType: file.type, width: dimensions.width, height: dimensions.height };
-    label.textContent = file.name + ' – jetzt auf ' + (state.sourceType === 'image' ? 'das Bild' : 'die PDF') + ' klicken.';
-    kbPdfEditorSetTool('image');
-    kbPdfEditorStatus('Foto bereit zum Platzieren.', 'success');
-  } catch (error) {
-    input.value = '';
-    label.textContent = '';
-    kbPdfEditorStatus(error && error.message ? error.message : 'Foto konnte nicht vorbereitet werden.', 'error');
-  }
-}
 
 async function kbSaveDirectPdfEditor() {
   var state = kbPdfEditorState;

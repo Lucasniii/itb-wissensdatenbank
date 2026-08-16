@@ -62,7 +62,8 @@ document.getElementById('kb-ai-form').addEventListener('submit', async function(
 document.getElementById('kb-ai-index').addEventListener('click', async function() { await kbAiIndexAll(); });
 // Das Wissens-Formular ist entfallen. Bearbeitet und freigegeben wird in der
 // Bibliothek, angelegt ueber den Import oder das Notizbuch.
-document.getElementById('kb-pdf-editor-image').addEventListener('change', kbPdfEditorSelectImage);
+document.getElementById('kb-pdf-editor-line').addEventListener('input', function() { kbPdfEditorApplySelectedLineWidth(false); });
+document.getElementById('kb-pdf-editor-line').addEventListener('change', function() { kbPdfEditorApplySelectedLineWidth(true); });
 document.getElementById('kb-pdf-editor-color').addEventListener('input', function() { kbPdfEditorApplySelectedColor(false); });
 document.getElementById('kb-pdf-editor-color').addEventListener('change', function() { kbPdfEditorApplySelectedColor(true); });
 document.getElementById('kb-pdf-editor-text').addEventListener('input', function() { kbPdfEditorApplySelectedText(false); });

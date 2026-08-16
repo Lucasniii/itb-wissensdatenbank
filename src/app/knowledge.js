@@ -220,7 +220,7 @@ function remoteEntryDate(entry) {
   return new Intl.DateTimeFormat('de-AT', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(timestamp));
 }
 
-function remoteImageGalleryHtml(entry, editable, excludedAttachmentIds) {
+function remoteImageGalleryHtml(entry, editable, excludedAttachmentIds, imageEditable) {
   excludedAttachmentIds = excludedAttachmentIds || {};
   var images = (entry.knowledge_attachments || []).filter(function(file) {
     return remoteImageAttachment(file) && file.preview_url && !excludedAttachmentIds[file.id];
@@ -231,6 +231,7 @@ function remoteImageGalleryHtml(entry, editable, excludedAttachmentIds) {
       '<button class="kb-image-open" type="button" onclick="openRemoteAttachment(\'' + file.id + '\')" title="Foto öffnen: ' + zcEsc(file.original_name) + '">' +
         '<img src="' + zcEsc(file.preview_url) + '" alt="Vorschau: ' + zcEsc(file.original_name) + '" loading="lazy">' +
       '</button>' +
+      (imageEditable ? '<button class="admin-mini-btn kb-image-edit" type="button" onclick="kbOpenDirectImageEditor(\'' + file.id + '\')" title="Bild direkt bearbeiten">Bearbeiten</button>' : '') +
       (editable ? '<button class="admin-mini-btn delete kb-image-remove" type="button" onclick="deleteRemoteAttachment(\'' + entry.id + '\',\'' + file.id + '\')" title="Foto entfernen">✕</button>' : '') +
     '</div>';
   }).join('') + '</div>';
@@ -273,6 +274,7 @@ function remoteEntryHtml(entry, options) {
   var date = remoteEntryDate(entry);
   var inlineAttachmentIds = isNotebookEntry(entry) ? notebookInlineAttachmentIds(entry) : null;
   var contentHtml = isNotebookEntry(entry) ? notebookStoredContentHtml(entry) : zcEsc(entry.content);
+  var imageEditable = !!(currentProfile && currentProfile.role === 'admin');
   return '<article class="admin-feature kb-card">' +
     '<div class="admin-feature-head"><span class="admin-badge">' + zcEsc(entry.category) + '</span>' + remoteEntryStatus(entry) + aiBadge + actions + '</div>' +
     '<div class="kb-card-body">' +
@@ -280,7 +282,7 @@ function remoteEntryHtml(entry, options) {
       (date ? '<div class="kb-card-meta">' + (entry.status === 'draft' ? 'Eingereicht ' : 'Aktualisiert ') + zcEsc(date) + '</div>' : '') +
       (entry.command && !isNotebookEntry(entry) ? '<div class="admin-feature-notes">Befehl: ' + zcEsc(entry.command) + '</div>' : '') +
       '<div class="' + (isNotebookEntry(entry) ? 'notebook-rendered-content' : 'admin-feature-notes') + '"' + (isNotebookEntry(entry) ? '' : ' style="white-space:pre-wrap"') + '>' + contentHtml + '</div>' +
-      remoteImageGalleryHtml(entry, options.editable, inlineAttachmentIds) +
+      remoteImageGalleryHtml(entry, options.editable, inlineAttachmentIds, imageEditable) +
       remoteAttachmentHtml(entry, options.editable) +
     '</div>' +
   '</article>';
@@ -315,6 +317,7 @@ async function loadRemoteKnowledge() {
   remoteKnowledgeEntries = response.data || [];
   await hydrateRemoteImagePreviews(remoteKnowledgeEntries);
   kbAdminRender();
+  kbLibraryRender();
   kbRenderSearch();
   renderTechDrafts();
   if (typeof notebookRender === 'function') notebookRender();
@@ -444,6 +447,48 @@ async function kbSaveEditablePdf(entry, attachment, file, baseStoragePath, annot
     if (removePrevious.error) console.warn('Vorherige gerenderte PDF konnte nicht entfernt werden.', removePrevious.error);
   }
   return chunkCount;
+}
+
+async function kbSaveEditableImage(entry, attachment, file, baseStoragePath, annotations) {
+  if (!attachment || !remoteImageAttachment(attachment)) throw new Error('Das zu bearbeitende Bild wurde nicht gefunden.');
+  if (!file || !remoteImageAttachment({ mime_type: file.type })) throw new Error('Das bearbeitete Bild hat kein unterstütztes Format.');
+  if (file.size > REMOTE_ATTACHMENT_MAX_SIZE) throw new Error('Das bearbeitete Bild ist größer als 25 MB.');
+
+  var cleanName = String(file.name || attachment.original_name || 'bild').replace(/[^a-zA-Z0-9._-]/g, '_');
+  var newPath = currentSession.user.id + '/' + entry.id + '/' + crypto.randomUUID() + '-editor-' + cleanName;
+  var upload = await supabaseClient.storage.from('knowledge-files').upload(newPath, file, { contentType: file.type, upsert: false });
+  if (upload.error) throw upload.error;
+
+  var savedAnnotations = kbPdfEditorStoredAnnotationsForSave(annotations);
+  var layer = await supabaseClient.from('knowledge_pdf_edits').upsert({
+    attachment_id: attachment.id,
+    base_storage_path: baseStoragePath || attachment.storage_path,
+    annotations: savedAnnotations,
+    updated_by: currentSession.user.id
+  }, { onConflict: 'attachment_id' });
+  if (layer.error) {
+    await supabaseClient.storage.from('knowledge-files').remove([newPath]);
+    throw layer.error;
+  }
+
+  var contentSha256 = await kbPdfSha256(file);
+  var updated = await supabaseClient.from('knowledge_attachments').update({
+    storage_path: newPath,
+    original_name: file.name || attachment.original_name,
+    mime_type: file.type,
+    size_bytes: file.size,
+    content_sha256: contentSha256
+  }).eq('id', attachment.id).select('id,storage_path,original_name,mime_type,size_bytes,content_sha256').single();
+  if (updated.error) {
+    await supabaseClient.storage.from('knowledge-files').remove([newPath]);
+    throw updated.error;
+  }
+
+  if (attachment.storage_path !== (baseStoragePath || attachment.storage_path)) {
+    var removePrevious = await supabaseClient.storage.from('knowledge-files').remove([attachment.storage_path]);
+    if (removePrevious.error) console.warn('Vorheriges bearbeitetes Bild konnte nicht entfernt werden.', removePrevious.error);
+  }
+  return updated.data;
 }
 
 function kbImportTitleFromPdfFilename(filename) {
@@ -1168,6 +1213,52 @@ function kbAdminRender() {
         (published.length ? published.map(function(entry) { return remoteEntryHtml(entry, { admin: true, editable: true }); }).join('') : '<div class="kb-inbox-empty">Noch keine Einträge veröffentlicht.</div>') +
       '</div>' +
     '</details>';
+}
+
+function kbLibraryEntryMatches(entry, query) {
+  if (!query) return true;
+  var attachmentNames = (entry.knowledge_attachments || []).map(function(file) { return file.original_name || ''; });
+  return [entry.category, entry.title, entry.command, entry.content].concat(attachmentNames).join(' ').toLowerCase().indexOf(query) >= 0;
+}
+
+function kbLibraryEntryHtml(entry) {
+  var attachmentCount = (entry.knowledge_attachments || []).length;
+  var date = remoteEntryDate(entry);
+  return '<details class="kb-library-entry">' +
+    '<summary>' +
+      '<span class="kb-library-entry-main">' +
+        '<span class="kb-library-entry-title">' + zcEsc(entry.title) + '</span>' +
+        '<span class="kb-library-entry-meta">' + zcEsc(entry.category) + (date ? ' · ' + zcEsc(date) : '') + (attachmentCount ? ' · ' + attachmentCount + ' Anhang' + (attachmentCount === 1 ? '' : 'e') : '') + '</span>' +
+      '</span>' +
+      remoteEntryStatus(entry) +
+    '</summary>' +
+    '<div class="kb-library-entry-content">' + remoteEntryHtml(entry, { admin: true, editable: true }) + '</div>' +
+  '</details>';
+}
+
+function kbLibraryRender() {
+  var list = document.getElementById('kb-library-list');
+  var count = document.getElementById('kb-library-count');
+  var search = document.getElementById('kb-library-search');
+  var category = document.getElementById('kb-library-category');
+  if (!list || !count || !search || !category) return;
+  if (!currentProfile || currentProfile.role !== 'admin') {
+    count.textContent = '0';
+    list.innerHTML = '<div class="kb-inbox-empty">Admin-Anmeldung erforderlich.</div>';
+    return;
+  }
+  var selectedCategory = category.value;
+  var categories = remoteKnowledgeEntries.map(function(entry) { return entry.category || ''; }).filter(Boolean).filter(function(value, index, values) { return values.indexOf(value) === index; }).sort(function(a, b) { return a.localeCompare(b, 'de'); });
+  category.innerHTML = '<option value="">Alle Kategorien</option>' + categories.map(function(value) { return '<option value="' + zcEsc(value) + '">' + zcEsc(value) + '</option>'; }).join('');
+  category.value = categories.indexOf(selectedCategory) >= 0 ? selectedCategory : '';
+  var query = search.value.trim().toLowerCase();
+  var entries = remoteKnowledgeEntries.filter(function(entry) {
+    return (!category.value || entry.category === category.value) && kbLibraryEntryMatches(entry, query);
+  });
+  count.textContent = entries.length;
+  list.innerHTML = entries.length
+    ? entries.map(kbLibraryEntryHtml).join('')
+    : '<div class="kb-inbox-empty">Keine Einträge für diese Auswahl gefunden.</div>';
 }
 
 function kbRenderSearch() {

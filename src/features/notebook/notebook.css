@@ -81,7 +81,11 @@
   .notebook-rich-editor s, .notebook-rendered-content s { opacity: 0.75; }
   /* Die Bilder liegen absolut. Ohne eigenen Bezugsrahmen richten sie sich an der
      Seite aus und stehen dann ausserhalb der Notiz. */
-  .notebook-rendered-content { position: relative; overflow: hidden; margin-top: 9px; color: var(--text); font-size: 0.72rem; line-height: 1.55; white-space: pre-wrap; }
+  /* Schriftgroesse, Zeilenhoehe und Innenabstand muessen mit .notebook-rich-editor
+     uebereinstimmen. Platzierte Bilder und PDFs liegen auf festen Pixelpositionen,
+     der Text fliesst -- weichen die Werte ab, verschiebt sich beides gegeneinander
+     und die Anordnung aus dem Editor stimmt hier nicht mehr. */
+  .notebook-rendered-content { position: relative; overflow: hidden; margin-top: 9px; padding: 12px; color: var(--text); font-size: 0.75rem; line-height: 1.6; white-space: pre-wrap; }
   .notebook-rendered-content .notebook-inline-image { cursor: zoom-in; }
   .notebook-rendered-content .notebook-inline-image:hover { border-color: var(--accent); filter: brightness(1.06); }
   .notebook-attachments { display: grid; gap: 7px; padding: 11px; border: 1px dashed var(--border); background: rgba(0,0,0,0.13); }
@@ -93,3 +97,10 @@
   .notebook-list { display: grid; gap: 10px; margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--border); }
   .notebook-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; font: 700 0.72rem 'Roboto', Arial, sans-serif; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
   .notebook-list-empty { padding: 12px; border: 1px dashed var(--border); color: var(--muted); font-size: 0.68rem; }
+
+  /* Unter 760 px hebt app.css die Eingabefelder auf 0.78rem an. Der Editor ist
+     eines, die gespeicherte Notiz nicht -- ohne diese Zeile laufen Text und
+     platzierte Dateien auf schmalen Fenstern wieder auseinander. */
+  @media (max-width: 760px) {
+    .notebook-rendered-content { font-size: 0.78rem; }
+  }

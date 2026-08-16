@@ -185,6 +185,44 @@ function notebookBindInlineImageMovement(image) {
   image.addEventListener('pointerdown', notebookInlineImagePointerDown);
   image.addEventListener('keydown', notebookInlineImageKeyDown);
   image.addEventListener('pointermove', notebookInlineImageHover);
+  image.addEventListener('dblclick', notebookInlineImageDoubleClick);
+}
+
+function notebookInlineImageDoubleClick(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  notebookOpenImageEditor(event.currentTarget);
+}
+
+// Der Direkt-Editor arbeitet auf dem gespeicherten Anhang. Ein gerade
+// eingefuegtes Bild liegt noch nicht in der Ablage und hat darum keine Kennung.
+function notebookOpenImageEditor(image) {
+  var attachmentId = image && image.dataset.notebookImageId;
+  if (!attachmentId) {
+    notebookSetStatus('Das Bild muss erst mit der Notiz gespeichert werden, bevor es direkt bearbeitet werden kann.', 'error');
+    return;
+  }
+  if (typeof kbOpenDirectImageEditor !== 'function') return;
+  notebookSetStatus('');
+  kbOpenDirectImageEditor(attachmentId);
+}
+
+// Nach dem Direkt-Editor stimmt die Bildadresse nicht mehr: der Anhang behaelt
+// seine Kennung, wird aber an einem neuen Ort abgelegt.
+function notebookRefreshInlineImageSources() {
+  var editor = notebookEditor();
+  if (!editor) return;
+  var adressen = {};
+  (typeof remoteKnowledgeEntries !== 'undefined' && Array.isArray(remoteKnowledgeEntries) ? remoteKnowledgeEntries : [])
+    .forEach(function(entry) {
+      (entry.knowledge_attachments || []).forEach(function(file) {
+        if (file.preview_url) adressen[file.id] = file.preview_url;
+      });
+    });
+  Array.from(editor.querySelectorAll('img.notebook-inline-image')).forEach(function(image) {
+    var url = adressen[image.dataset.notebookImageId];
+    if (url && image.getAttribute('src') !== url) image.setAttribute('src', url);
+  });
 }
 
 // Zeigt schon vor dem Klick, was die Ecke tut.
@@ -315,6 +353,12 @@ function notebookInlineImageKeyDown(event) {
   var image = event.currentTarget;
   var editor = notebookEditor();
   if (!editor) return;
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    event.stopPropagation();
+    notebookOpenImageEditor(image);
+    return;
+  }
   if (event.key === '+' || event.key === '-' || event.key === '_' || event.key === '=') {
     event.preventDefault();
     event.stopPropagation();
@@ -356,7 +400,7 @@ function notebookMakeInlineImage(options, editable) {
   // verschieben. Beides ueber die Tastatur erreichbar, darum immer im Tab-Lauf.
   image.tabIndex = 0;
   if (editable) {
-    image.title = 'Ziehen zum Verschieben. Angeklickt bewegen die Pfeiltasten das Bild, mit Shift feiner.';
+    image.title = 'Ziehen zum Verschieben, Ecke unten rechts fuer die Groesse. Doppelklick oder Enter oeffnet den Direkt-Editor. Pfeiltasten ruecken das Bild, mit Shift feiner.';
   } else {
     image.title = 'Oeffnen: ' + image.alt;
     image.setAttribute('role', 'button');
@@ -605,6 +649,10 @@ function notebookSetStatus(message, type) {
   if (!status) return;
   status.textContent = message || '';
   status.className = 'pdf-template-hint' + (type ? ' ' + type : '');
+  // Beim Bearbeiten aus der Bibliothek heraus steht das Formular nach dem
+  // Speichern wieder im Notizbuch. Die Meldung gehoert trotzdem dorthin, wo
+  // gearbeitet wurde.
+  if (typeof kbLibraryMirrorStatus === 'function') kbLibraryMirrorStatus(message, type);
 }
 
 function notebookEntries() {
@@ -642,11 +690,16 @@ function notebookResetForm() {
   if (!form) return;
   form.reset();
   form.removeAttribute('data-kb-id');
+  form.removeAttribute('data-kb-command');
+  form.removeAttribute('data-kb-notebook');
   document.getElementById('notebook-category').value = NOTEBOOK_CATEGORIES[0];
   notebookSetEditorContent('', null);
   document.getElementById('notebook-file-preview').innerHTML = '';
   notebookSetStatus('', '');
   notebookSetEditState(null);
+  // Steht das Formular gerade in einem Bibliothek-Eintrag, gehoert es zurueck
+  // ins Notizbuch, sobald die Bearbeitung endet.
+  if (typeof kbLibraryReleaseNotebookForm === 'function') kbLibraryReleaseNotebookForm();
 }
 
 function notebookRender() {
@@ -676,16 +729,32 @@ function notebookRender() {
 function notebookEdit(id) {
   var entry = (remoteKnowledgeEntries || []).find(function(item) { return item.id === id && isNotebookEntry(item); });
   if (!entry) return;
+  notebookLoadIntoEditor(entry);
+}
+
+// Auch Wissenseintraege koennen hier bearbeitet werden. Ihr Befehl-Feld darf
+// dabei nicht verlorengehen, denn die Notizbuch-Markierung wohnt im selben Feld.
+// options.keepView laesst die aktuelle Ansicht stehen. Die Bibliothek holt sich
+// das Formular in ihren Eintrag und will nicht ins Notizbuch springen.
+function notebookLoadIntoEditor(entry, options) {
+  options = options || {};
   var form = document.getElementById('notebook-form');
   form.setAttribute('data-kb-id', entry.id);
+  form.setAttribute('data-kb-command', entry.command || '');
+  form.setAttribute('data-kb-notebook', isNotebookEntry(entry) ? 'true' : 'false');
   document.getElementById('notebook-title').value = entry.title;
-  document.getElementById('notebook-category').value = NOTEBOOK_CATEGORIES.indexOf(entry.category) >= 0 ? entry.category : NOTEBOOK_CATEGORIES[0];
+  var select = document.getElementById('notebook-category');
+  if (NOTEBOOK_CATEGORIES.indexOf(entry.category) < 0 && entry.category) {
+    // Fremde Kategorie erhalten, statt sie still auf die erste zu aendern.
+    select.insertAdjacentHTML('beforeend', '<option value="' + zcEsc(entry.category) + '">' + zcEsc(entry.category) + '</option>');
+  }
+  select.value = entry.category || NOTEBOOK_CATEGORIES[0];
   notebookSetEditorContent(entry.content || '', entry);
   document.getElementById('notebook-files').value = '';
   document.getElementById('notebook-file-preview').innerHTML = '';
   notebookSetEditState(entry);
   notebookSetStatus('', '');
-  showActiveView('notebook');
+  if (!options.keepView) showActiveView('notebook');
   window.setTimeout(function() { document.getElementById('notebook-title').focus(); }, 0);
 }
 
@@ -693,11 +762,16 @@ async function notebookSave() {
   if (!supabaseClient || !currentProfile || currentProfile.role !== 'admin') return;
   var form = document.getElementById('notebook-form');
   var id = form.getAttribute('data-kb-id');
+  // Die Notizbuch-Markierung wohnt im Befehl-Feld. Ein Wissenseintrag, der hier
+  // nur bearbeitet wird, behaelt darum seinen Befehl und wandert nicht ins
+  // Notizbuch. Nur echte Notizen bekommen die Markierung.
+  var istWissenseintrag = form.getAttribute('data-kb-notebook') === 'false';
+  var vorhandenerBefehl = form.getAttribute('data-kb-command') || '';
   var payload = {
     category: document.getElementById('notebook-category').value.trim(),
     title: document.getElementById('notebook-title').value.trim(),
     content: notebookSerializeEditorContent(),
-    command: NOTEBOOK_ENTRY_MARKER
+    command: istWissenseintrag ? vorhandenerBefehl : (vorhandenerBefehl || NOTEBOOK_ENTRY_MARKER)
   };
   if (!payload.category || !payload.title) return;
   if (payload.content.length > 3000) {
@@ -739,7 +813,7 @@ async function notebookSave() {
     var storedContent = notebookSerializeEditorContent();
     if (storedContent.length > 3000) throw new Error('Die Notiz ist nach dem Einfügen der Bilder zu lang.');
     if (storedContent !== payload.content) {
-      var contentUpdate = await supabaseClient.from('knowledge_entries').update({ content: storedContent, command: NOTEBOOK_ENTRY_MARKER }).eq('id', response.data.id);
+      var contentUpdate = await supabaseClient.from('knowledge_entries').update({ content: storedContent, command: payload.command }).eq('id', response.data.id);
       if (contentUpdate.error) throw contentUpdate.error;
     }
     if (response.data.status === 'published') await indexRemoteKnowledgeEntry(response.data.id);
@@ -767,15 +841,26 @@ function notebookRenderedImage(target) {
 }
 
 function notebookOpenRenderedImage(image) {
-  if (typeof openRemoteAttachment !== 'function') return;
-  openRemoteAttachment(image.dataset.notebookImageId);
+  if (typeof kbImageOpenDelayed !== 'function') return;
+  kbImageOpenDelayed(image.dataset.notebookImageId);
 }
 
 document.addEventListener('click', function(event) {
   var image = notebookRenderedImage(event.target);
   if (!image) return;
   event.preventDefault();
+  // Der zweite Klick eines Doppelklicks gehoert dem Direkt-Editor.
+  if (event.detail > 1) return;
   notebookOpenRenderedImage(image);
+});
+
+// Doppelklick auf ein Bild in einer gerenderten Notiz oeffnet den Direkt-Editor,
+// genau wie im Editor selbst.
+document.addEventListener('dblclick', function(event) {
+  var image = notebookRenderedImage(event.target);
+  if (!image || typeof kbImageEditDirect !== 'function') return;
+  event.preventDefault();
+  kbImageEditDirect(image.dataset.notebookImageId);
 });
 
 document.addEventListener('keydown', function(event) {

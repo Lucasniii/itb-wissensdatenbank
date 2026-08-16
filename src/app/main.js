@@ -5,11 +5,32 @@
 document.querySelectorAll('.tab').forEach(function(tab) {
   tab.addEventListener('click', function() {
     var view = tab.dataset.view;
+    // Das Editor-Formular kann in der Bibliothek stehen. Es gehoert zurueck ins
+    // Notizbuch, bevor die Ansicht wechselt.
+    if (typeof kbLibraryEndInlineEditing === 'function') kbLibraryEndInlineEditing();
     document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
     document.querySelectorAll('.view').forEach(function(v) { v.classList.remove('active'); });
     tab.classList.add('active');
     document.getElementById('view-' + view).classList.add('active');
   });
+});
+
+// Unterreiter im Adminbereich. Wird auch von aussen aufgerufen, etwa wenn aus der
+// Bibliothek heraus das Formular geoeffnet wird.
+function showAdminSubview(name) {
+  var panel = document.getElementById('admin-sub-' + name);
+  if (!panel) return;
+  if (typeof kbLibraryEndInlineEditing === 'function') kbLibraryEndInlineEditing();
+  document.querySelectorAll('.admin-subtab').forEach(function(button) {
+    button.classList.toggle('active', button.dataset.adminView === name);
+  });
+  document.querySelectorAll('.admin-subview').forEach(function(view) {
+    view.classList.toggle('active', view === panel);
+  });
+}
+
+document.querySelectorAll('.admin-subtab').forEach(function(button) {
+  button.addEventListener('click', function() { showAdminSubview(button.dataset.adminView); });
 });
 
 adminRender();

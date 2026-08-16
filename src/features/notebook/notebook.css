@@ -29,6 +29,19 @@
   .notebook-inline-image:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
   .notebook-inline-image:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .notebook-inline-image-placeholder { display: inline-block; margin: 7px; padding: 8px; border: 1px dashed var(--border); color: var(--muted); font-size: 0.65rem; }
+  .notebook-length { margin-left: auto; color: var(--muted); font-size: 0.62rem; }
+  .notebook-length.error { color: var(--red); }
+  /* Uebernommene Formatierung aus OneNote und Word. Gilt fuer den Editor und
+     fuer die gespeicherte Notiz gleichermassen, damit beide gleich aussehen. */
+  .notebook-rich-editor h3, .notebook-rendered-content h3 { margin: 10px 0 4px; font-size: 0.92rem; font-weight: 700; line-height: 1.35; }
+  .notebook-rich-editor h4, .notebook-rendered-content h4 { margin: 8px 0 3px; font-size: 0.8rem; font-weight: 700; line-height: 1.35; }
+  .notebook-rich-editor ul, .notebook-rendered-content ul,
+  .notebook-rich-editor ol, .notebook-rendered-content ol { margin: 4px 0 4px 18px; padding: 0; }
+  .notebook-rich-editor li, .notebook-rendered-content li { margin: 2px 0; }
+  .notebook-rich-editor a, .notebook-rendered-content a { color: #6fa8dc; text-decoration: underline; }
+  .notebook-rich-editor code, .notebook-rendered-content code { padding: 1px 4px; border-radius: 2px; background: rgba(255,255,255,0.08); font-family: 'SFMono-Regular', Consolas, monospace; font-size: 0.95em; }
+  .notebook-rich-editor mark, .notebook-rendered-content mark { padding: 0 2px; background: rgba(203,214,83,0.3); color: inherit; }
+  .notebook-rich-editor s, .notebook-rendered-content s { opacity: 0.75; }
   /* Die Bilder liegen absolut. Ohne eigenen Bezugsrahmen richten sie sich an der
      Seite aus und stehen dann ausserhalb der Notiz. */
   .notebook-rendered-content { position: relative; overflow: hidden; margin-top: 9px; color: var(--text); font-size: 0.72rem; line-height: 1.55; white-space: pre-wrap; }

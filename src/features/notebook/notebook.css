@@ -12,12 +12,28 @@
   .notebook-rich-editor { position: relative; min-height: 300px; overflow: auto; resize: vertical; padding: 12px; white-space: pre-wrap; line-height: 1.6; cursor: text; }
   .notebook-rich-editor:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
   .notebook-rich-editor:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px rgba(203,214,83,0.16); }
-  .notebook-inline-image { position: absolute; z-index: 2; display: block; max-width: min(75%, 320px); max-height: 260px; border: 1px solid var(--border); border-radius: 3px; cursor: grab; user-select: none; touch-action: none; }
-  .notebook-inline-image:active, .notebook-inline-image.is-dragging { cursor: grabbing; opacity: 0.45; }
+  .notebook-rich-editor.is-moving-image { cursor: grabbing; user-select: none; }
+  .notebook-rich-editor.is-file-target { border-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(203,214,83,0.2); }
+  .notebook-inline-image { position: absolute; z-index: 2; display: block; max-width: min(75%, 320px); max-height: 260px; border: 1px solid var(--border); border-radius: 3px; cursor: grab; user-select: none; touch-action: none; transition: box-shadow 120ms ease, border-color 120ms ease; }
+  .notebook-inline-image:hover { border-color: rgba(203,214,83,0.55); box-shadow: 0 2px 10px rgba(0,0,0,0.4); }
+  .notebook-inline-image.is-dragging { cursor: grabbing; z-index: 5; opacity: 0.92; border-color: var(--accent); box-shadow: 0 12px 26px rgba(0,0,0,0.55); transition: none; }
+  .notebook-inline-image.is-resizing { z-index: 5; border-color: var(--accent); box-shadow: 0 12px 26px rgba(0,0,0,0.55); transition: none; }
+  /* Ecke unten rechts als Anfasser andeuten. Das Bild selbst kann kein
+     Pseudoelement tragen, darum liegt der Hinweis auf dem Rahmen. */
+  .notebook-rich-editor .notebook-inline-image:hover,
+  .notebook-rich-editor .notebook-inline-image:focus,
+  .notebook-rich-editor .notebook-inline-image.is-resizing {
+    border-image: linear-gradient(315deg, var(--accent) 0 14px, transparent 14px) 1;
+    border-width: 2px;
+  }
   .notebook-inline-image:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .notebook-inline-image:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .notebook-inline-image-placeholder { display: inline-block; margin: 7px; padding: 8px; border: 1px dashed var(--border); color: var(--muted); font-size: 0.65rem; }
-  .notebook-rendered-content { margin-top: 9px; color: var(--text); font-size: 0.72rem; line-height: 1.55; white-space: pre-wrap; }
+  /* Die Bilder liegen absolut. Ohne eigenen Bezugsrahmen richten sie sich an der
+     Seite aus und stehen dann ausserhalb der Notiz. */
+  .notebook-rendered-content { position: relative; overflow: hidden; margin-top: 9px; color: var(--text); font-size: 0.72rem; line-height: 1.55; white-space: pre-wrap; }
   .notebook-rendered-content .notebook-inline-image { cursor: zoom-in; }
+  .notebook-rendered-content .notebook-inline-image:hover { border-color: var(--accent); filter: brightness(1.06); }
   .notebook-attachments { display: grid; gap: 7px; padding: 11px; border: 1px dashed var(--border); background: rgba(0,0,0,0.13); }
   .notebook-attachments-copy { color: var(--muted); font-size: 0.64rem; line-height: 1.45; }
   .notebook-file-preview { display: flex; gap: 7px; flex-wrap: wrap; min-height: 0; }

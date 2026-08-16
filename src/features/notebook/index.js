@@ -1,5 +1,12 @@
 var notebookInlineImages = [];
-var notebookInlineDragKey = '';
+var NOTEBOOK_DRAG_EDGE = 34;
+var NOTEBOOK_NUDGE_STEP = 10;
+var NOTEBOOK_NUDGE_FINE = 1;
+var NOTEBOOK_IMAGE_RESERVE = 24;
+var NOTEBOOK_MIN_EDITOR_HEIGHT = 300;
+var NOTEBOOK_RESIZE_ZONE = 20;
+var NOTEBOOK_MIN_IMAGE_WIDTH = 60;
+var NOTEBOOK_RESIZE_STEP = 20;
 
 function notebookEditor() {
   return document.getElementById('notebook-content');
@@ -10,7 +17,6 @@ function notebookReleaseInlineImages() {
     if (item.url && item.url.indexOf('blob:') === 0) URL.revokeObjectURL(item.url);
   });
   notebookInlineImages = [];
-  notebookInlineDragKey = '';
 }
 
 function notebookInlineImageKey(image) {
@@ -32,10 +38,18 @@ function notebookAttachmentById(entry, attachmentId) {
   return (entry && entry.knowledge_attachments || []).find(function(file) { return file.id === attachmentId; }) || null;
 }
 
+// 0 ist eine gueltige Position. Nur fehlende oder unlesbare Werte bekommen den
+// Standardabstand, sonst schnappt ein Bild am linken oder oberen Rand zurueck.
+function notebookCoordinate(value) {
+  if (value === undefined || value === null || value === '') return 12;
+  var number = Number(value);
+  return isFinite(number) ? Math.max(0, number) : 12;
+}
+
 function notebookImagePosition(image) {
   return {
-    x: Math.max(0, Number(image && image.dataset.notebookX) || 12),
-    y: Math.max(0, Number(image && image.dataset.notebookY) || 12)
+    x: notebookCoordinate(image && image.dataset.notebookX),
+    y: notebookCoordinate(image && image.dataset.notebookY)
   };
 }
 
@@ -53,47 +67,282 @@ function notebookSetImagePosition(image, x, y) {
   image.style.top = position.y + 'px';
 }
 
+function notebookImageHeight(image) {
+  return Math.max((image && image.offsetHeight) || 120, 120);
+}
+
+// Eine eigene Breite hebt die Vorgaben aus dem Stylesheet auf, die Hoehe folgt
+// dem Seitenverhaeltnis. Ohne Breite bleibt es bei den Vorgaben.
+function notebookSetImageWidth(image, width) {
+  if (!image) return;
+  var value = Math.round(Number(width));
+  if (!isFinite(value) || value < NOTEBOOK_MIN_IMAGE_WIDTH) {
+    delete image.dataset.notebookW;
+    image.style.width = '';
+    image.style.height = '';
+    image.style.maxWidth = '';
+    image.style.maxHeight = '';
+    return;
+  }
+  image.dataset.notebookW = String(value);
+  image.style.width = value + 'px';
+  image.style.height = 'auto';
+  image.style.maxWidth = 'none';
+  image.style.maxHeight = 'none';
+}
+
+function notebookImageWidthAttribute(image) {
+  var raw = image && image.dataset.notebookW;
+  if (raw === undefined || raw === null || raw === '') return 0;
+  var value = Number(raw);
+  return isFinite(value) && value >= NOTEBOOK_MIN_IMAGE_WIDTH ? Math.round(value) : 0;
+}
+
+function notebookMaxImageWidth(editor, image) {
+  return Math.max(NOTEBOOK_MIN_IMAGE_WIDTH, editor.clientWidth - notebookImagePosition(image).x - 2);
+}
+
+// Die Ecke unten rechts zieht die Groesse, der Rest verschiebt.
+function notebookInResizeZone(image, event) {
+  var box = image.getBoundingClientRect();
+  return (box.right - event.clientX) <= NOTEBOOK_RESIZE_ZONE
+    && (box.bottom - event.clientY) <= NOTEBOOK_RESIZE_ZONE;
+}
+
 function notebookKeepImageVisible(image) {
   var editor = notebookEditor();
   if (!editor || !image) return;
-  var requiredHeight = 300;
+  var requiredHeight = NOTEBOOK_MIN_EDITOR_HEIGHT;
   Array.from(editor.querySelectorAll('img.notebook-inline-image')).forEach(function(item) {
     var position = notebookImagePosition(item);
-    requiredHeight = Math.max(requiredHeight, position.y + Math.max(item.offsetHeight || 120, 120) + 24);
+    requiredHeight = Math.max(requiredHeight, position.y + notebookImageHeight(item) + NOTEBOOK_IMAGE_RESERVE);
   });
   editor.style.minHeight = requiredHeight + 'px';
 }
 
+// Gespeicherte Notizen zeigen dieselben absolut liegenden Bilder. Der Container
+// hat ohne Zutun keine Hoehe, weil die Bilder aus dem Textfluss fallen.
+function notebookFitRenderedContent(container) {
+  if (!container) return;
+  var requiredHeight = 0;
+  Array.from(container.querySelectorAll('img.notebook-inline-image')).forEach(function(item) {
+    requiredHeight = Math.max(requiredHeight, notebookImagePosition(item).y + notebookImageHeight(item) + NOTEBOOK_IMAGE_RESERVE);
+  });
+  container.style.minHeight = requiredHeight ? requiredHeight + 'px' : '';
+}
+
+function notebookFitAllRenderedContent(root) {
+  Array.from((root || document).querySelectorAll('.notebook-rendered-content')).forEach(notebookFitRenderedContent);
+  Array.from((root || document).querySelectorAll('.notebook-rendered-content img.notebook-inline-image')).forEach(notebookWatchRenderedImage);
+}
+
+// Wird eine Notiz in einem zugeklappten Bereich gezeichnet, hat ihr Bild noch
+// keine Hoehe und der Container faellt zu klein aus. Beim Aufklappen misst sonst
+// niemand nach, darum meldet sich hier die Groessenaenderung selbst.
+var notebookRenderedImageObserver = typeof ResizeObserver === 'function'
+  ? new ResizeObserver(function(entries) {
+      var containers = [];
+      entries.forEach(function(entry) {
+        var container = entry.target.closest && entry.target.closest('.notebook-rendered-content');
+        if (container && containers.indexOf(container) < 0) containers.push(container);
+      });
+      containers.forEach(notebookFitRenderedContent);
+    })
+  : null;
+
+function notebookWatchRenderedImage(image) {
+  if (!notebookRenderedImageObserver || !image || image.dataset.notebookWatched) return;
+  image.dataset.notebookWatched = '1';
+  notebookRenderedImageObserver.observe(image);
+}
+
+function notebookMaxImageLeft(editor, image) {
+  return Math.max(0, editor.clientWidth - image.offsetWidth - 2);
+}
+
+// Grenzen einmal zu Beginn des Ziehens messen. Waechst das Feld waehrenddessen
+// mit, entsteht eine Rueckkopplung: Bild nach unten, Feld waechst, Bild kann
+// noch weiter nach unten - das Bild laeuft dann aus dem Feld heraus.
+// Die Reserve unter dem Bild gehoert in dieselbe Rechnung wie in
+// notebookKeepImageVisible, sonst wandert der untere Rand bei jedem Zug mit.
+function notebookMaxImageTop(editor, image) {
+  var reach = Math.max(editor.scrollHeight, editor.clientHeight);
+  return Math.max(0, reach - notebookImageHeight(image) - NOTEBOOK_IMAGE_RESERVE);
+}
+
+function notebookScrollImageIntoView(image) {
+  var editor = notebookEditor();
+  if (!editor || !image) return;
+  var position = notebookImagePosition(image);
+  var height = Math.max(image.offsetHeight || 120, 120);
+  if (position.y < editor.scrollTop) editor.scrollTop = Math.max(0, position.y - 12);
+  else if (position.y + height > editor.scrollTop + editor.clientHeight) {
+    editor.scrollTop = position.y + height - editor.clientHeight + 12;
+  }
+}
+
 function notebookBindInlineImageMovement(image) {
-  image.addEventListener('pointerdown', function(event) {
-    if (event.button !== undefined && event.button !== 0) return;
-    var editor = notebookEditor();
-    if (!editor) return;
+  image.addEventListener('pointerdown', notebookInlineImagePointerDown);
+  image.addEventListener('keydown', notebookInlineImageKeyDown);
+  image.addEventListener('pointermove', notebookInlineImageHover);
+}
+
+// Zeigt schon vor dem Klick, was die Ecke tut.
+function notebookInlineImageHover(event) {
+  var image = event.currentTarget;
+  if (image.classList.contains('is-dragging') || image.classList.contains('is-resizing')) return;
+  image.style.cursor = notebookInResizeZone(image, event) ? 'nwse-resize' : 'grab';
+}
+
+function notebookInlineImagePointerDown(event) {
+  if (event.button !== undefined && event.button !== 0) return;
+  var image = event.currentTarget;
+  var editor = notebookEditor();
+  if (!editor) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (notebookInResizeZone(image, event)) {
+    notebookInlineImageResizeStart(image, editor, event);
+    return;
+  }
+
+  var start = notebookImagePosition(image);
+  var startX = event.clientX;
+  var startY = event.clientY;
+  var startScroll = editor.scrollTop;
+  var pointerX = event.clientX;
+  var pointerY = event.clientY;
+  var maxLeft = notebookMaxImageLeft(editor, image);
+  var maxTop = notebookMaxImageTop(editor, image);
+  var scrollTimer = 0;
+  var moved = false;
+
+  image.classList.add('is-dragging');
+  editor.classList.add('is-moving-image');
+  try { image.setPointerCapture(event.pointerId); } catch (error) {}
+
+  function apply() {
+    // Die Position gehoert zum Inhalt, der Zeiger meldet Fensterkoordinaten.
+    // Darum muss die inzwischen gescrollte Strecke wieder dazugerechnet werden.
+    var scrolled = editor.scrollTop - startScroll;
+    var nextX = Math.min(maxLeft, Math.max(0, start.x + pointerX - startX));
+    var nextY = Math.min(maxTop, Math.max(0, start.y + (pointerY - startY) + scrolled));
+    notebookSetImagePosition(image, nextX, nextY);
+  }
+
+  function autoScroll() {
+    var box = editor.getBoundingClientRect();
+    var step = 0;
+    if (pointerY < box.top + NOTEBOOK_DRAG_EDGE) step = -Math.ceil((box.top + NOTEBOOK_DRAG_EDGE - pointerY) / 3);
+    else if (pointerY > box.bottom - NOTEBOOK_DRAG_EDGE) step = Math.ceil((pointerY - (box.bottom - NOTEBOOK_DRAG_EDGE)) / 3);
+    if (!step) return;
+    var before = editor.scrollTop;
+    editor.scrollTop = Math.max(0, before + step);
+    if (editor.scrollTop !== before) apply();
+  }
+
+  function move(moveEvent) {
+    moved = true;
+    pointerX = moveEvent.clientX;
+    pointerY = moveEvent.clientY;
+    apply();
+  }
+
+  function finish() {
+    window.clearInterval(scrollTimer);
+    image.classList.remove('is-dragging');
+    editor.classList.remove('is-moving-image');
+    try { image.releasePointerCapture(event.pointerId); } catch (error) {}
+    image.removeEventListener('pointermove', move);
+    image.removeEventListener('pointerup', finish);
+    image.removeEventListener('pointercancel', finish);
+    image.removeEventListener('lostpointercapture', finish);
+    notebookKeepImageVisible(image);
+    if (moved) image.focus({ preventScroll: true });
+  }
+
+  scrollTimer = window.setInterval(autoScroll, 16);
+  image.addEventListener('pointermove', move);
+  image.addEventListener('pointerup', finish);
+  image.addEventListener('pointercancel', finish);
+  image.addEventListener('lostpointercapture', finish);
+}
+
+function notebookInlineImageResizeStart(image, editor, event) {
+  var startWidth = image.offsetWidth;
+  var startX = event.clientX;
+
+  image.classList.add('is-resizing');
+  editor.classList.add('is-moving-image');
+  image.style.cursor = 'nwse-resize';
+  try { image.setPointerCapture(event.pointerId); } catch (error) {}
+
+  function resize(moveEvent) {
+    notebookSetImageWidth(image, Math.min(
+      notebookMaxImageWidth(editor, image),
+      Math.max(NOTEBOOK_MIN_IMAGE_WIDTH, startWidth + moveEvent.clientX - startX)));
+  }
+
+  function finish() {
+    image.classList.remove('is-resizing');
+    editor.classList.remove('is-moving-image');
+    image.style.cursor = '';
+    try { image.releasePointerCapture(event.pointerId); } catch (error) {}
+    image.removeEventListener('pointermove', resize);
+    image.removeEventListener('pointerup', finish);
+    image.removeEventListener('pointercancel', finish);
+    image.removeEventListener('lostpointercapture', finish);
+    notebookClampImageIntoEditor(image, editor);
+    notebookKeepImageVisible(image);
+    image.focus({ preventScroll: true });
+  }
+
+  image.addEventListener('pointermove', resize);
+  image.addEventListener('pointerup', finish);
+  image.addEventListener('pointercancel', finish);
+  image.addEventListener('lostpointercapture', finish);
+}
+
+// Nach einer Groessenaenderung kann das Bild ueber den Rand ragen.
+function notebookClampImageIntoEditor(image, editor) {
+  var position = notebookImagePosition(image);
+  notebookSetImagePosition(image,
+    Math.min(notebookMaxImageLeft(editor, image), position.x),
+    Math.min(notebookMaxImageTop(editor, image), position.y));
+}
+
+function notebookInlineImageKeyDown(event) {
+  var image = event.currentTarget;
+  var editor = notebookEditor();
+  if (!editor) return;
+  if (event.key === '+' || event.key === '-' || event.key === '_' || event.key === '=') {
     event.preventDefault();
     event.stopPropagation();
-    var start = notebookImagePosition(image);
-    var startX = event.clientX;
-    var startY = event.clientY;
-    image.classList.add('is-dragging');
-    image.setPointerCapture(event.pointerId);
-    function move(moveEvent) {
-      var maxX = Math.max(0, editor.clientWidth - image.offsetWidth - 2);
-      var maxY = Math.max(0, editor.clientHeight - image.offsetHeight - 2);
-      var nextX = Math.min(maxX, Math.max(0, start.x + moveEvent.clientX - startX));
-      var nextY = Math.min(maxY, Math.max(0, start.y + moveEvent.clientY - startY));
-      notebookSetImagePosition(image, nextX, nextY);
-    }
-    function finish() {
-      image.classList.remove('is-dragging');
-      notebookKeepImageVisible(image);
-      image.removeEventListener('pointermove', move);
-      image.removeEventListener('pointerup', finish);
-      image.removeEventListener('pointercancel', finish);
-    }
-    image.addEventListener('pointermove', move);
-    image.addEventListener('pointerup', finish);
-    image.addEventListener('pointercancel', finish);
-  });
+    var richtung = (event.key === '+' || event.key === '=') ? 1 : -1;
+    notebookSetImageWidth(image, Math.min(
+      notebookMaxImageWidth(editor, image),
+      Math.max(NOTEBOOK_MIN_IMAGE_WIDTH, image.offsetWidth + (richtung * NOTEBOOK_RESIZE_STEP))));
+    notebookClampImageIntoEditor(image, editor);
+    notebookKeepImageVisible(image);
+    notebookScrollImageIntoView(image);
+    return;
+  }
+  var step = event.shiftKey ? NOTEBOOK_NUDGE_FINE : NOTEBOOK_NUDGE_STEP;
+  var position = notebookImagePosition(image);
+  var nextX = position.x;
+  var nextY = position.y;
+  if (event.key === 'ArrowLeft') nextX = position.x - step;
+  else if (event.key === 'ArrowRight') nextX = position.x + step;
+  else if (event.key === 'ArrowUp') nextY = position.y - step;
+  else if (event.key === 'ArrowDown') nextY = position.y + step;
+  else return;
+  event.preventDefault();
+  event.stopPropagation();
+  notebookSetImagePosition(image,
+    Math.min(notebookMaxImageLeft(editor, image), nextX),
+    Math.min(notebookMaxImageTop(editor, image), nextY));
+  notebookKeepImageVisible(image);
+  notebookScrollImageIntoView(image);
 }
 
 function notebookMakeInlineImage(options, editable) {
@@ -101,15 +350,23 @@ function notebookMakeInlineImage(options, editable) {
   image.className = 'notebook-inline-image';
   image.src = options.url;
   image.alt = options.name || 'Bild in Notiz';
-  image.title = editable ? 'Bild im Notizfeld verschieben' : image.alt;
   image.draggable = false;
   image.contentEditable = 'false';
-  image.tabIndex = editable ? 0 : -1;
+  // In der gespeicherten Notiz laesst sich das Bild oeffnen, im Editor
+  // verschieben. Beides ueber die Tastatur erreichbar, darum immer im Tab-Lauf.
+  image.tabIndex = 0;
+  if (editable) {
+    image.title = 'Ziehen zum Verschieben. Angeklickt bewegen die Pfeiltasten das Bild, mit Shift feiner.';
+  } else {
+    image.title = 'Oeffnen: ' + image.alt;
+    image.setAttribute('role', 'button');
+  }
   if (options.localId) image.dataset.notebookLocalId = options.localId;
   if (options.attachmentId) image.dataset.notebookImageId = options.attachmentId;
   notebookSetImagePosition(image, options.x, options.y);
-  image.addEventListener('load', function() { notebookKeepImageVisible(image); }, { once: true });
+  if (options.width) notebookSetImageWidth(image, options.width);
   if (editable) {
+    image.addEventListener('load', function() { notebookKeepImageVisible(image); }, { once: true });
     notebookBindInlineImageMovement(image);
   }
   return image;
@@ -139,7 +396,8 @@ function notebookSafeContentElement(content, entry, editable) {
             url: attachment.preview_url,
             name: attachment.original_name,
             x: node.getAttribute('data-notebook-x'),
-            y: node.getAttribute('data-notebook-y')
+            y: node.getAttribute('data-notebook-y'),
+            width: node.getAttribute('data-notebook-w')
           }, editable));
         } else if (attachmentId) {
           var placeholder = document.createElement('span');
@@ -211,8 +469,10 @@ function notebookSerializeEditorContent() {
         var image = document.createElement('img');
         image.setAttribute('data-notebook-image-id', attachmentId);
         image.setAttribute('alt', String(node.alt || 'Bild in Notiz').slice(0, 160));
-        image.setAttribute('data-notebook-x', String(Math.max(0, Number(node.dataset.notebookX) || 12)));
-        image.setAttribute('data-notebook-y', String(Math.max(0, Number(node.dataset.notebookY) || 12)));
+        image.setAttribute('data-notebook-x', String(Math.round(notebookCoordinate(node.dataset.notebookX))));
+        image.setAttribute('data-notebook-y', String(Math.round(notebookCoordinate(node.dataset.notebookY))));
+        var width = notebookImageWidthAttribute(node);
+        if (width) image.setAttribute('data-notebook-w', String(width));
         target.appendChild(image);
         return;
       }
@@ -264,6 +524,21 @@ function notebookInsertNode(node, dropEvent) {
   editor.focus();
 }
 
+function notebookInlineImageStart(dropEvent, index) {
+  var editor = notebookEditor();
+  var scrollTop = editor ? editor.scrollTop : 0;
+  if (editor && dropEvent) {
+    // Abgelegte Bilder gehoeren dorthin, wo sie fallen gelassen wurden.
+    var box = editor.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.round(dropEvent.clientX - box.left + editor.scrollLeft - 30)),
+      y: Math.max(0, Math.round(dropEvent.clientY - box.top + scrollTop - 30))
+    };
+  }
+  var offset = 16 + ((index % 5) * 22);
+  return { x: offset, y: scrollTop + offset };
+}
+
 function notebookInsertInlineFiles(files, dropEvent) {
   var valid = [];
   var invalid = [];
@@ -276,20 +551,21 @@ function notebookInsertInlineFiles(files, dropEvent) {
     valid.push(file);
   });
   valid.forEach(function(file) {
+    var start = notebookInlineImageStart(dropEvent, notebookInlineImages.length);
     var item = {
       localId: 'notebook-image-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
       file: file,
       name: file.name,
       url: URL.createObjectURL(file),
       attachmentId: '',
-      x: 16 + ((notebookInlineImages.length % 5) * 22),
-      y: 16 + ((notebookInlineImages.length % 5) * 22)
+      x: start.x,
+      y: start.y
     };
     notebookInlineImages.push(item);
     notebookInsertNode(notebookMakeInlineImage(item, true), dropEvent);
   });
   if (invalid.length) notebookSetStatus('Nur JPG, PNG und WebP bis 25 MB können direkt im Text eingefügt werden: ' + invalid.join(', '), 'error');
-  else if (valid.length) notebookSetStatus(valid.length + ' Bild' + (valid.length === 1 ? '' : 'er') + ' in den Text eingefügt. Zum Verschieben einfach ziehen.', 'success');
+  else if (valid.length) notebookSetStatus(valid.length + ' Bild' + (valid.length === 1 ? '' : 'er') + ' eingefügt. Ziehen zum Verschieben, Pfeiltasten für die Feinausrichtung.', 'success');
 }
 
 function notebookHandleInlineImageSelection() {
@@ -299,26 +575,29 @@ function notebookHandleInlineImageSelection() {
   if (input) input.value = '';
 }
 
+// Bilder im Feld werden per Pointer verschoben, nicht ueber HTML5-Drag. Hier
+// landen daher nur Dateien von ausserhalb.
 function notebookEditorDragOver(event) {
-  if (notebookInlineDragKey || (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files.length)) {
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = notebookInlineDragKey ? 'move' : 'copy';
-  }
+  if (!event.dataTransfer || !event.dataTransfer.types) return;
+  if (Array.from(event.dataTransfer.types).indexOf('Files') < 0) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'copy';
+  notebookEditor().classList.add('is-file-target');
+}
+
+function notebookEditorDragLeave(event) {
+  var editor = notebookEditor();
+  if (!editor || editor.contains(event.relatedTarget)) return;
+  editor.classList.remove('is-file-target');
 }
 
 function notebookEditorDrop(event) {
+  var editor = notebookEditor();
+  if (editor) editor.classList.remove('is-file-target');
   var files = Array.from(event.dataTransfer && event.dataTransfer.files || []);
-  if (files.length && !notebookInlineDragKey) {
-    event.preventDefault();
-    notebookInsertInlineFiles(files, event);
-    return;
-  }
-  var image = notebookFindInlineImage(notebookInlineDragKey);
-  if (!image) return;
+  if (!files.length) return;
   event.preventDefault();
-  notebookInsertNode(image, event);
-  image.classList.remove('is-dragging');
-  notebookInlineDragKey = '';
+  notebookInsertInlineFiles(files, event);
 }
 
 function notebookSetStatus(message, type) {
@@ -391,6 +670,7 @@ function notebookRender() {
         remoteImageGalleryHtml(entry, false, inlineAttachmentIds) + remoteAttachmentHtml(entry, false) +
       '</div></article>';
   }).join('') + '</div>';
+  notebookFitAllRenderedContent(target);
 }
 
 function notebookEdit(id) {
@@ -477,5 +757,48 @@ async function notebookSave() {
 // Event bindings live with the Notebook feature so this area can evolve independently.
 document.getElementById('notebook-form').addEventListener('submit', async function(event) { event.preventDefault(); await notebookSave(); });
 document.getElementById('notebook-inline-images').addEventListener('change', notebookHandleInlineImageSelection);
+// Gerenderte Notizen entstehen ueber innerHTML, dabei gehen Listener an den
+// Bildern verloren. Klick und Tastatur laufen darum ueber das Dokument. Das gilt
+// auch fuer Notizen, die die Wissensdatenbank zeichnet.
+function notebookRenderedImage(target) {
+  if (!target || !target.classList || !target.classList.contains('notebook-inline-image')) return null;
+  if (!target.closest || !target.closest('.notebook-rendered-content')) return null;
+  return target.dataset.notebookImageId ? target : null;
+}
+
+function notebookOpenRenderedImage(image) {
+  if (typeof openRemoteAttachment !== 'function') return;
+  openRemoteAttachment(image.dataset.notebookImageId);
+}
+
+document.addEventListener('click', function(event) {
+  var image = notebookRenderedImage(event.target);
+  if (!image) return;
+  event.preventDefault();
+  notebookOpenRenderedImage(image);
+});
+
+document.addEventListener('keydown', function(event) {
+  if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
+  var image = notebookRenderedImage(event.target);
+  if (!image) return;
+  event.preventDefault();
+  notebookOpenRenderedImage(image);
+});
+
+// Bilder melden ihr Laden nicht nach oben, darum hier in der Capture-Phase: so
+// bekommt jeder Container seine Hoehe, ohne dass die gemeinsame Datei etwas davon
+// wissen muss.
+document.addEventListener('load', function(event) {
+  var image = event.target;
+  if (!image || !image.classList || !image.classList.contains('notebook-inline-image')) return;
+  if (!image.closest) return;
+  var container = image.closest('.notebook-rendered-content');
+  if (!container) return;
+  notebookWatchRenderedImage(image);
+  notebookFitRenderedContent(container);
+}, true);
+
 document.getElementById('notebook-content').addEventListener('dragover', notebookEditorDragOver);
+document.getElementById('notebook-content').addEventListener('dragleave', notebookEditorDragLeave);
 document.getElementById('notebook-content').addEventListener('drop', notebookEditorDrop);

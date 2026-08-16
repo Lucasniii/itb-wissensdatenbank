@@ -482,10 +482,11 @@ function kbSetAdminEditState(entry) {
   var state = document.getElementById('kb-admin-edit-state');
   var title = document.getElementById('kb-admin-edit-title');
   var submit = document.getElementById('kb-admin-submit');
+  // Das Dateifeld samt Beschriftung gibt es nur noch in der Bibliothek.
   var pdfLabel = document.getElementById('kb-admin-pdfs-label');
   var currentAttachments = document.getElementById('kb-admin-current-attachments');
   var replacementInput = document.getElementById('kb-admin-replace-pdf');
-  if (!state || !title || !submit || !pdfLabel || !currentAttachments || !replacementInput) return;
+  if (!state || !title || !submit || !currentAttachments || !replacementInput) return;
 
   replacementInput.value = '';
   delete replacementInput.dataset.attachmentId;
@@ -493,7 +494,7 @@ function kbSetAdminEditState(entry) {
     state.hidden = true;
     title.textContent = '';
     submit.textContent = 'Wissen speichern';
-    pdfLabel.textContent = 'PDF-Dokumentation (optional)';
+    if (pdfLabel) pdfLabel.textContent = 'PDF-Dokumentation (optional)';
     currentAttachments.hidden = true;
     currentAttachments.innerHTML = '';
     return;
@@ -502,7 +503,7 @@ function kbSetAdminEditState(entry) {
   state.hidden = false;
   title.textContent = entry.title;
   submit.textContent = 'Änderungen speichern';
-  pdfLabel.textContent = 'Weitere PDFs anhängen (optional)';
+  if (pdfLabel) pdfLabel.textContent = 'Weitere PDFs anhängen (optional)';
   var attachments = entry.knowledge_attachments || [];
   currentAttachments.hidden = false;
   currentAttachments.innerHTML = attachments.length
@@ -801,7 +802,9 @@ document.getElementById('kb-admin-form').addEventListener('submit', async functi
     pdfs: existingEntry ? existingEntry.pdfs : []
   });
   if (!entry) return;
-  var files = Array.prototype.slice.call(document.getElementById('kb-admin-pdfs').files || []);
+  // Das Dateifeld im Formular ist entfallen, hochgeladen wird in der Bibliothek.
+  var localPdfInput = document.getElementById('kb-admin-pdfs');
+  var files = Array.prototype.slice.call(localPdfInput && localPdfInput.files || []);
   var preparedFiles;
   try {
     preparedFiles = await kbPreparePdfFiles(files, kbStoredPdfReferences());

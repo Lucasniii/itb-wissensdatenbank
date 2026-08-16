@@ -4,6 +4,9 @@ var NOTEBOOK_NUDGE_STEP = 10;
 var NOTEBOOK_NUDGE_FINE = 1;
 var NOTEBOOK_IMAGE_RESERVE = 24;
 var NOTEBOOK_MIN_EDITOR_HEIGHT = 300;
+// Obergrenze fuer das Mitwachsen beim Ziehen. Ohne sie kann ein Zug das Feld
+// beliebig lang machen.
+var NOTEBOOK_MAX_EDITOR_HEIGHT = 2400;
 var NOTEBOOK_RESIZE_ZONE = 20;
 var NOTEBOOK_MIN_IMAGE_WIDTH = 60;
 var NOTEBOOK_RESIZE_STEP = 20;
@@ -132,9 +135,21 @@ function notebookFitRenderedContent(container) {
   container.style.minHeight = requiredHeight ? requiredHeight + 'px' : '';
 }
 
+// Gespeicherte Notizen entstehen ueber innerHTML. Die Elemente, an denen der
+// Nachlader haengt, werden dabei verworfen und aus der Zeichenkette neu
+// aufgebaut -- die erste Seite muss darum hier noch einmal angefordert werden.
+function notebookRefreshPlacedPdfs(root) {
+  Array.from((root || document).querySelectorAll('img[data-notebook-pdf-id]')).forEach(function(image) {
+    if (image.dataset.notebookPdfLoaded === '1') return;
+    image.dataset.notebookPdfLoaded = '1';
+    notebookLoadPdfThumbnail(image, image.dataset.notebookPdfId);
+  });
+}
+
 function notebookFitAllRenderedContent(root) {
   Array.from((root || document).querySelectorAll('.notebook-rendered-content')).forEach(notebookFitRenderedContent);
   Array.from((root || document).querySelectorAll('.notebook-rendered-content img.notebook-inline-image')).forEach(notebookWatchRenderedImage);
+  notebookRefreshPlacedPdfs(root);
 }
 
 // Wird eine Notiz in einem zugeklappten Bereich gezeichnet, hat ihr Bild noch
@@ -262,13 +277,25 @@ function notebookInlineImagePointerDown(event) {
   editor.classList.add('is-moving-image');
   try { image.setPointerCapture(event.pointerId); } catch (error) {}
 
+  // Zieht der Zeiger tiefer, als das Feld reicht, waechst das Feld mit. Der
+  // Zuwachs haengt an der Wunschposition des Zeigers, nicht an der Feldhoehe:
+  // sonst schaukeln sich beide auf -- Feld waechst, Bild darf tiefer, Feld
+  // waechst. Der Zeiger begrenzt sich selbst, die Feldhoehe nicht.
+  function growEditorFor(wishedY) {
+    var needed = Math.min(NOTEBOOK_MAX_EDITOR_HEIGHT, wishedY + notebookImageHeight(image) + NOTEBOOK_IMAGE_RESERVE);
+    if (needed <= Math.max(editor.scrollHeight, editor.clientHeight)) return;
+    editor.style.minHeight = needed + 'px';
+    maxTop = notebookMaxImageTop(editor, image);
+  }
+
   function apply() {
     // Die Position gehoert zum Inhalt, der Zeiger meldet Fensterkoordinaten.
     // Darum muss die inzwischen gescrollte Strecke wieder dazugerechnet werden.
     var scrolled = editor.scrollTop - startScroll;
     var nextX = Math.min(maxLeft, Math.max(0, start.x + pointerX - startX));
-    var nextY = Math.min(maxTop, Math.max(0, start.y + (pointerY - startY) + scrolled));
-    notebookSetImagePosition(image, nextX, nextY);
+    var wishedY = Math.max(0, start.y + (pointerY - startY) + scrolled);
+    if (wishedY > maxTop) growEditorFor(wishedY);
+    notebookSetImagePosition(image, nextX, Math.min(maxTop, wishedY));
   }
 
   function autoScroll() {
@@ -1022,16 +1049,6 @@ function notebookEntries() {
   return (remoteKnowledgeEntries || []).filter(isNotebookEntry);
 }
 
-function notebookRenderSelectedFiles() {
-  var input = document.getElementById('notebook-files');
-  var preview = document.getElementById('notebook-file-preview');
-  if (!preview) return;
-  var files = Array.from(input && input.files || []);
-  preview.innerHTML = files.map(function(file) {
-    return '<span class="notebook-file-chip">' + zcEsc(attachmentKind(kbIsPdfFile(file) ? 'application/pdf' : (file.type || 'image/jpeg'))) + ': ' + zcEsc(file.name) + '</span>';
-  }).join('');
-}
-
 function notebookSetEditState(entry) {
   var state = document.getElementById('notebook-edit-state');
   var title = document.getElementById('notebook-edit-title');
@@ -1057,7 +1074,6 @@ function notebookResetForm() {
   form.removeAttribute('data-kb-notebook');
   document.getElementById('notebook-category').value = NOTEBOOK_CATEGORIES[0];
   notebookSetEditorContent('', null);
-  document.getElementById('notebook-file-preview').innerHTML = '';
   notebookSetStatus('', '');
   notebookSetEditState(null);
   // Steht das Formular gerade in einem Bibliothek-Eintrag, gehoert es zurueck
@@ -1113,8 +1129,6 @@ function notebookLoadIntoEditor(entry, options) {
   }
   select.value = entry.category || NOTEBOOK_CATEGORIES[0];
   notebookSetEditorContent(entry.content || '', entry);
-  document.getElementById('notebook-files').value = '';
-  document.getElementById('notebook-file-preview').innerHTML = '';
   notebookSetEditState(entry);
   notebookSetStatus('', '');
   if (!options.keepView) showActiveView('notebook');
@@ -1155,11 +1169,12 @@ async function notebookSave() {
       : await supabaseClient.from('knowledge_entries').insert(Object.assign({}, payload, { status: 'draft', submitted_by: currentSession.user.id })).select('id,status').single();
     if (response.error) throw response.error;
 
-    var files = Array.from(document.getElementById('notebook-files').files || []);
+    // Alles Hochgeladene steht im Textfeld, es gibt keinen zweiten Weg mehr
+    // daneben. Die Reihenfolge der Rueckgabe entspricht der Reihenfolge hier.
     var pendingInlineImages = notebookInlineImages.filter(function(item) { return !item.attachmentId; });
-    var uploadedAttachments = await uploadRemoteAttachments(response.data.id, files.concat(pendingInlineImages.map(function(item) { return item.file; })));
+    var uploadedAttachments = await uploadRemoteAttachments(response.data.id, pendingInlineImages.map(function(item) { return item.file; }));
     pendingInlineImages.forEach(function(item, index) {
-      var uploaded = uploadedAttachments[files.length + index];
+      var uploaded = uploadedAttachments[index];
       if (!uploaded || !uploaded.attachment) throw new Error('Die Datei konnte nicht in die Notiz eingefügt werden.');
       item.attachmentId = uploaded.attachment.id;
       var image = notebookFindInlineImage('local:' + item.localId);

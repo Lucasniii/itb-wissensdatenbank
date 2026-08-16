@@ -594,7 +594,7 @@
   body.is-authenticated [data-auth-only] { display: inline-flex !important; }
   body.is-admin [data-admin-only] { display: inline-flex !important; }
   .tech-status { margin: 0 0 14px; color: var(--muted); font-size: 0.72rem; }
-  #kb-admin-pdfs, #kb-admin-import-pdfs, #kb-admin-import-html-folder, #tech-files, #notebook-files { display: block; }
+  #kb-admin-pdfs, #kb-admin-import-pdfs, #kb-admin-import-html-folder, #tech-files { display: block; }
 
   /* ── MOBIL ── */
   @media (max-width: 760px) {

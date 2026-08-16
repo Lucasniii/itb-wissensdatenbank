@@ -379,6 +379,48 @@ async function uploadRemoteAttachments(entryId, files) {
   return uploadedAttachments;
 }
 
+// Reiner Text wird zu Zeilen-Elementen. Sobald eine Datei im Inhalt steht, liest
+// ihn das Notizbuch als HTML -- ohne diesen Schritt gingen die Zeilenumbrueche
+// verloren.
+function kbContentAsRichHtml(content) {
+  var text = String(content || '');
+  if (/<(div|p|img|br|b|i|u|s|span|ul|ol|h3|h4)[\s>/]/i.test(text)) return text;
+  if (!text) return '';
+  return text.split(/\r?\n/).map(function(line) {
+    return '<div>' + (line.trim() ? zcEsc(line) : '<br>') + '</div>';
+  }).join('');
+}
+
+// Hochgeladene Dateien gehoeren in den Text und nicht nur an den Eintrag: erst
+// dort lassen sie sich verschieben, in der Groesse aendern und per Doppelklick
+// oeffnen. Die Platzierung entsteht nach dem Upload, weil sie die Kennung des
+// fertigen Anhangs braucht.
+function kbPlacementMarkup(uploadedAttachments, startY, startIndex) {
+  return uploadedAttachments.map(function(uploaded, index) {
+    if (!uploaded || !uploaded.attachment) return '';
+    var attribute = uploaded.isPdf ? 'data-notebook-pdf-id' : 'data-notebook-image-id';
+    // Untereinander mit Abstand: die Vorgabe im Stylesheet laesst 260 px Hoehe zu.
+    var y = startY + (startIndex + index) * 280;
+    return '<img ' + attribute + '="' + uploaded.attachment.id + '"' +
+      ' alt="' + zcEsc(uploaded.attachment.original_name || '') + '"' +
+      ' data-notebook-x="16" data-notebook-y="' + y + '">';
+  }).join('');
+}
+
+async function kbPlaceUploadsInContent(entryId, content, uploadedAttachments) {
+  var placeable = (uploadedAttachments || []).filter(function(uploaded) { return uploaded && uploaded.attachment; });
+  if (!placeable.length) return '';
+  var rich = kbContentAsRichHtml(content);
+  var alreadyPlaced = (rich.match(/data-notebook-(image|pdf)-id/g) || []).length;
+  var textLines = String(content || '').split(/\r?\n/).length;
+  var next = rich + kbPlacementMarkup(placeable, 12 + textLines * 20, alreadyPlaced);
+  // Das Inhaltsfeld fasst 3000 Zeichen. Passt die Platzierung nicht mehr hinein,
+  // bleibt die Datei als Anhang erhalten, statt das Speichern scheitern zu lassen.
+  if (next.length > 3000) return 'zu lang';
+  var update = await supabaseClient.from('knowledge_entries').update({ content: next }).eq('id', entryId);
+  return update.error ? update.error.message : '';
+}
+
 async function kbStorePdfSearchChunks(entryId, attachment, chunks) {
   var remove = await supabaseClient.from('knowledge_document_chunks').delete().eq('attachment_id', attachment.id);
   if (remove.error) throw remove.error;
@@ -1035,15 +1077,19 @@ async function submitTechnicianEntry() {
       : 'Fehler: ' + created.error.message;
     return;
   }
+  var placementNote = '';
   try {
-    await uploadRemoteAttachments(created.data.id, Array.from(document.getElementById('tech-files').files || []));
+    var uploaded = await uploadRemoteAttachments(created.data.id, Array.from(document.getElementById('tech-files').files || []));
+    placementNote = await kbPlaceUploadsInContent(created.data.id, payload.content, uploaded);
   } catch (err) {
     status.textContent = 'Entwurf gespeichert, Anhang fehlgeschlagen: ' + err.message;
     await loadRemoteKnowledge();
     return;
   }
   document.getElementById('tech-entry-form').reset();
-  status.textContent = 'Entwurf wurde eingereicht und wartet auf Freigabe.';
+  status.textContent = placementNote === 'zu lang'
+    ? 'Entwurf wurde eingereicht. Die Datei hängt am Eintrag, im Text war kein Platz mehr (3.000 Zeichen).'
+    : 'Entwurf wurde eingereicht und wartet auf Freigabe.';
   await loadRemoteKnowledge();
 }
 
@@ -1064,7 +1110,9 @@ async function kbAdminSubmitRemote() {
     alert(duplicateTitleMessage);
     return;
   }
-  var files = Array.from(document.getElementById('kb-admin-pdfs').files || []);
+  // Hochgeladen wird in der Bibliothek, das Formular hat kein Dateifeld mehr.
+  var pdfInput = document.getElementById('kb-admin-pdfs');
+  var files = Array.from(pdfInput && pdfInput.files || []);
   var replacementInput = document.getElementById('kb-admin-replace-pdf');
   var replacementAttachmentId = replacementInput && replacementInput.dataset.attachmentId || '';
   var replacementFile = replacementInput && replacementInput.files && replacementInput.files[0];
@@ -1109,6 +1157,8 @@ async function kbAdminSubmitRemote() {
     var entryForAttachments = Object.assign({}, previousEntry || {}, response.data);
     if (previousEntry) entryForAttachments.knowledge_attachments = previousEntry.knowledge_attachments || [];
     var uploadedAttachments = await uploadRemoteAttachments(response.data.id, files);
+    var placementNote = await kbPlaceUploadsInContent(response.data.id, payload.content, uploadedAttachments);
+    if (placementNote === 'zu lang') kbSetPdfTemplateHint('Die Datei hängt am Eintrag. Für die Platzierung im Text war kein Platz mehr (3.000 Zeichen).', 'error');
     var indexedChunks = 0;
     for (var attachmentIndex = 0; attachmentIndex < uploadedAttachments.length; attachmentIndex++) {
       var uploaded = uploadedAttachments[attachmentIndex];
@@ -1336,6 +1386,7 @@ function kbAdminRender() {
       '<div class="kb-inbox-heading"><h3>Freigabe-Inbox</h3><span class="admin-badge kb-inbox-count">' + drafts.length + ' offen</span></div>' +
       (drafts.length ? drafts.map(function(entry) { return remoteEntryHtml(entry, { admin: true, editable: true }); }).join('') : '<div class="kb-inbox-empty">Keine Entwürfe warten auf Freigabe.</div>') +
     '</section>';
+  notebookFitAllRenderedContent(list);
 }
 
 function kbLibraryEntryMatches(entry, query) {
@@ -1490,6 +1541,9 @@ function kbRenderSearch() {
   if (!query) { results.innerHTML = ''; return; }
   var entries = remoteKnowledgeEntries.filter(function(entry) { return entry.status === 'published' && remoteEntryMatches(entry, query); });
   results.innerHTML = entries.length ? entries.map(function(entry) { return remoteEntryHtml(entry, {}); }).join('') : '<div class="kb-empty">Keine Informationen zu dieser Suche gefunden.</div>';
+  // Platzierte Bilder fallen aus dem Textfluss, ihr Container braucht eine
+  // gemessene Hoehe. Platzierte PDFs holen hier ihre erste Seite nach.
+  notebookFitAllRenderedContent(results);
 }
 
 function renderTechDrafts() {

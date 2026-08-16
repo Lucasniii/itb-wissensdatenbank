@@ -321,7 +321,6 @@ async function loadRemoteKnowledge() {
   await hydrateRemoteImagePreviews(remoteKnowledgeEntries);
   kbAdminRender();
   kbLibraryRender();
-  kbWissenLibraryRender();
   kbRenderSearch();
   renderTechDrafts();
   if (typeof notebookRender === 'function') notebookRender();
@@ -1225,49 +1224,9 @@ function kbLibraryEntryMatches(entry, query) {
   return [entry.category, entry.title, entry.command, entry.content].concat(attachmentNames).join(' ').toLowerCase().indexOf(query) >= 0;
 }
 
+// Die Bibliothek im Adminbereich: nur freigegebene Eintraege, mit allen Wegen zum
+// Bearbeiten in einer Zeile.
 function kbLibraryEntryHtml(entry) {
-  var attachmentCount = (entry.knowledge_attachments || []).length;
-  var date = remoteEntryDate(entry);
-  return '<details class="kb-library-entry">' +
-    '<summary>' +
-      '<span class="kb-library-entry-main">' +
-        '<span class="kb-library-entry-title">' + zcEsc(entry.title) + '</span>' +
-        '<span class="kb-library-entry-meta">' + zcEsc(entry.category) + (date ? ' · ' + zcEsc(date) : '') + (attachmentCount ? ' · ' + attachmentCount + ' Anhang' + (attachmentCount === 1 ? '' : 'e') : '') + '</span>' +
-      '</span>' +
-      remoteEntryStatus(entry) +
-    '</summary>' +
-    '<div class="kb-library-entry-content">' + remoteEntryHtml(entry, { admin: true, editable: true }) + '</div>' +
-  '</details>';
-}
-
-function kbLibraryRender() {
-  var list = document.getElementById('kb-library-list');
-  var count = document.getElementById('kb-library-count');
-  var search = document.getElementById('kb-library-search');
-  var category = document.getElementById('kb-library-category');
-  if (!list || !count || !search || !category) return;
-  if (!currentProfile || currentProfile.role !== 'admin') {
-    count.textContent = '0';
-    list.innerHTML = '<div class="kb-inbox-empty">Admin-Anmeldung erforderlich.</div>';
-    return;
-  }
-  var selectedCategory = category.value;
-  var categories = remoteKnowledgeEntries.map(function(entry) { return entry.category || ''; }).filter(Boolean).filter(function(value, index, values) { return values.indexOf(value) === index; }).sort(function(a, b) { return a.localeCompare(b, 'de'); });
-  category.innerHTML = '<option value="">Alle Kategorien</option>' + categories.map(function(value) { return '<option value="' + zcEsc(value) + '">' + zcEsc(value) + '</option>'; }).join('');
-  category.value = categories.indexOf(selectedCategory) >= 0 ? selectedCategory : '';
-  var query = search.value.trim().toLowerCase();
-  var entries = remoteKnowledgeEntries.filter(function(entry) {
-    return (!category.value || entry.category === category.value) && kbLibraryEntryMatches(entry, query);
-  });
-  count.textContent = entries.length;
-  list.innerHTML = entries.length
-    ? entries.map(kbLibraryEntryHtml).join('')
-    : '<div class="kb-inbox-empty">Keine Einträge für diese Auswahl gefunden.</div>';
-}
-
-// Bibliothek in der Wissensdatenbank: nur freigegebene Eintraege, mit beiden
-// Wegen zum Bearbeiten. Die Bibliothek im Admin-Tab bleibt davon unberuehrt.
-function kbWissenLibraryEntryHtml(entry) {
   var attachments = entry.knowledge_attachments || [];
   var date = remoteEntryDate(entry);
   var meta = [entry.category, date, attachments.length ? attachments.length + ' Anhang' + (attachments.length === 1 ? '' : 'e') : '']
@@ -1281,23 +1240,25 @@ function kbWissenLibraryEntryHtml(entry) {
       remoteEntryStatus(entry) +
     '</summary>' +
     '<div class="kb-library-entry-content">' +
-      '<div class="kb-wissen-library-actions">' +
-        '<button class="admin-btn primary" type="button" onclick="kbWissenLibraryEdit(\'' + entry.id + '\')">Text und Bilder bearbeiten</button>' +
-        kbWissenLibraryAttachmentButtons(attachments) +
+      '<div class="kb-library-actions">' +
+        '<button class="admin-btn primary" type="button" onclick="kbLibraryEditInEditor(\'' + entry.id + '\')">Text und Bilder bearbeiten</button>' +
+        // Titel, Kategorie und vor allem das Feld Befehl gibt es nur im Formular.
+        '<button class="admin-mini-btn" type="button" onclick="kbAdminEdit(\'' + entry.id + '\')">Im Formular bearbeiten</button>' +
+        kbLibraryAttachmentButtons(attachments) +
       '</div>' +
       remoteEntryHtml(entry, { admin: true, editable: true, hideEdit: true }) +
     '</div>' +
   '</details>';
 }
 
-function kbWissenLibraryEdit(id) {
+function kbLibraryEditInEditor(id) {
   if (!currentProfile || currentProfile.role !== 'admin') return;
   var entry = (remoteKnowledgeEntries || []).find(function(item) { return item.id === id; });
   if (!entry) return;
   notebookLoadIntoEditor(entry);
 }
 
-function kbWissenLibraryAttachmentButtons(attachments) {
+function kbLibraryAttachmentButtons(attachments) {
   return attachments.map(function(file) {
     var isImage = remoteImageAttachment(file);
     var opener = isImage ? 'kbOpenDirectImageEditor' : (file.mime_type === 'application/pdf' ? 'kbOpenDirectPdfEditor' : '');
@@ -1307,11 +1268,11 @@ function kbWissenLibraryAttachmentButtons(attachments) {
   }).join('');
 }
 
-function kbWissenLibraryRender() {
-  var list = document.getElementById('kb-wissen-library-list');
-  var count = document.getElementById('kb-wissen-library-count');
-  var search = document.getElementById('kb-wissen-library-search');
-  var category = document.getElementById('kb-wissen-library-category');
+function kbLibraryRender() {
+  var list = document.getElementById('kb-library-list');
+  var count = document.getElementById('kb-library-count');
+  var search = document.getElementById('kb-library-search');
+  var category = document.getElementById('kb-library-category');
   if (!list || !count || !search || !category) return;
   if (!currentProfile || currentProfile.role !== 'admin') {
     count.textContent = '0';
@@ -1334,7 +1295,7 @@ function kbWissenLibraryRender() {
   });
   count.textContent = entries.length;
   list.innerHTML = entries.length
-    ? entries.map(kbWissenLibraryEntryHtml).join('')
+    ? entries.map(kbLibraryEntryHtml).join('')
     : '<div class="kb-inbox-empty">Keine freigegebenen Eintraege fuer diese Auswahl gefunden.</div>';
   notebookFitAllRenderedContent(list);
 }

@@ -220,20 +220,24 @@
               <option value="6">Sehr groß</option>
             </select>
             <label class="notebook-format-color" title="Textfarbe">
-              <span aria-hidden="true">A</span>
+              <span class="notebook-format-letter" aria-hidden="true">A</span>
               <input type="color" id="notebook-format-color" value="#cbd653" aria-label="Textfarbe">
             </label>
             <label class="notebook-format-color" title="Farbig hinterlegen">
-              <span aria-hidden="true">▮</span>
+              <svg class="notebook-format-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M9.8 1.9 4.2 7.5l-1 3.3 3.3-1 5.6-5.6z" fill="currentColor"/><rect x="2" y="12.6" width="12" height="2" rx="1" fill="currentColor"/></svg>
               <input type="color" id="notebook-format-highlight" value="#cce8ff" aria-label="Farbig hinterlegen">
             </label>
-            <button type="button" class="notebook-format-btn" data-command="insertUnorderedList" title="Aufzählung" aria-label="Aufzählung">•—</button>
-            <button type="button" class="notebook-format-btn" data-command="removeFormat" title="Formatierung entfernen" aria-label="Formatierung entfernen">✕</button>
+            <button type="button" class="notebook-format-btn" data-command="insertUnorderedList" title="Aufzählung" aria-label="Aufzählung">
+              <svg class="notebook-format-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="2.5" cy="4" r="1.5" fill="currentColor"/><circle cx="2.5" cy="8" r="1.5" fill="currentColor"/><circle cx="2.5" cy="12" r="1.5" fill="currentColor"/><rect x="6" y="3.1" width="8" height="1.8" rx="0.9" fill="currentColor"/><rect x="6" y="7.1" width="8" height="1.8" rx="0.9" fill="currentColor"/><rect x="6" y="11.1" width="8" height="1.8" rx="0.9" fill="currentColor"/></svg>
+            </button>
+            <button type="button" class="notebook-format-btn" data-command="removeFormat" title="Formatierung entfernen" aria-label="Formatierung entfernen">
+              <svg class="notebook-format-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3.8 2.6 13.4 12.2l-1.2 1.2L2.6 3.8z" fill="currentColor"/><path d="M12.2 2.6l1.2 1.2-9.6 9.6-1.2-1.2z" fill="currentColor"/></svg>
+            </button>
           </div>
           <div class="notebook-content-tools">
             <label for="notebook-inline-images" class="admin-mini-btn">Bild in Text einfügen</label>
             <input id="notebook-inline-images" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple>
-            <span class="notebook-content-tools-copy">Bild im Text an die gewünschte Stelle ziehen. Screenshots lassen sich direkt einfügen, Text aus OneNote behält seine Formatierung.</span>
+            <span class="notebook-content-tools-copy">Bilder und PDFs ins Textfeld ziehen und dort frei verschieben. Screenshots lassen sich direkt einfügen, Text aus OneNote behält seine Formatierung.</span>
             <span id="notebook-length" class="notebook-length">0 / 3000 Zeichen</span>
           </div>
           <div id="notebook-content" class="admin-input notebook-rich-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Notiztext" data-placeholder="Notiz schreiben …"></div>

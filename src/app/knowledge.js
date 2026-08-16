@@ -1239,29 +1239,53 @@ async function kbRenderAttachmentPreview(panel, attachmentId) {
   await kbRenderPdfPreview(panel, signed.data.signedUrl);
 }
 
-async function kbRenderPdfPreview(panel, url) {
+// Zeichnet die erste Seite auf ein Canvas. Genutzt von der Schnellvorschau und
+// von platzierten PDFs im Notizbuch.
+async function kbPdfFirstPageCanvas(bytes, targetWidth) {
   if (!window.pdfjsLib) throw new Error('Die PDF-Vorschau ist nicht verfügbar.');
   window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  var response = await fetch(url);
-  if (!response.ok) throw new Error('Die PDF konnte nicht geladen werden.');
-  var bytes = new Uint8Array(await response.arrayBuffer());
   var pdf = await window.pdfjsLib.getDocument({ data: bytes }).promise;
   var page = await pdf.getPage(1);
   var unscaled = page.getViewport({ scale: 1 });
-  // Das Panel ist beim Aufklappen schon sichtbar, seine Breite gibt die Aufloesung vor.
-  var scale = Math.min(Math.max(panel.clientWidth || 0, 320) / unscaled.width, 2);
-  var viewport = page.getViewport({ scale: scale });
+  var viewport = page.getViewport({ scale: Math.min(Math.max(targetWidth || 0, 320) / unscaled.width, 2) });
   var canvas = document.createElement('canvas');
-  canvas.className = 'kb-preview-canvas';
   canvas.width = Math.round(viewport.width);
   canvas.height = Math.round(viewport.height);
   await page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
+  return { canvas: canvas, pageCount: pdf.numPages };
+}
+
+async function kbPdfBytesFromUrl(url) {
+  var response = await fetch(url);
+  if (!response.ok) throw new Error('Die PDF konnte nicht geladen werden.');
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+async function kbRenderPdfPreview(panel, url) {
+  // Das Panel ist beim Aufklappen schon sichtbar, seine Breite gibt die Aufloesung vor.
+  var rendered = await kbPdfFirstPageCanvas(await kbPdfBytesFromUrl(url), panel.clientWidth);
+  rendered.canvas.className = 'kb-preview-canvas';
   panel.innerHTML = '';
-  panel.appendChild(canvas);
+  panel.appendChild(rendered.canvas);
   var hint = document.createElement('div');
   hint.className = 'kb-preview-status';
-  hint.textContent = pdf.numPages > 1 ? 'Seite 1 von ' + pdf.numPages + ' — zum Blättern die PDF öffnen.' : 'Seite 1 von 1';
+  hint.textContent = rendered.pageCount > 1 ? 'Seite 1 von ' + rendered.pageCount + ' — zum Blättern die PDF öffnen.' : 'Seite 1 von 1';
   panel.appendChild(hint);
+}
+
+// Vorschaubild einer abgelegten PDF, nach Anhang-Kennung gemerkt. Ohne den
+// Zwischenspeicher laedt jede Neuzeichnung der Notiz die Datei erneut.
+var kbPdfThumbnails = {};
+
+async function kbPdfThumbnailUrl(attachmentId) {
+  if (kbPdfThumbnails[attachmentId]) return kbPdfThumbnails[attachmentId];
+  var attachment = kbRemoteAttachmentById(attachmentId);
+  if (!attachment || attachment.mime_type !== 'application/pdf') return '';
+  var signed = await supabaseClient.storage.from('knowledge-files').createSignedUrl(attachment.storage_path, 300);
+  if (signed.error) throw signed.error;
+  var rendered = await kbPdfFirstPageCanvas(await kbPdfBytesFromUrl(signed.data.signedUrl), 480);
+  kbPdfThumbnails[attachmentId] = rendered.canvas.toDataURL('image/png');
+  return kbPdfThumbnails[attachmentId];
 }
 
 async function openRemoteAttachment(id, pageNumber) {

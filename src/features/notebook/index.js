@@ -23,6 +23,7 @@ function notebookInlineImageKey(image) {
   if (!image) return '';
   if (image.dataset.notebookLocalId) return 'local:' + image.dataset.notebookLocalId;
   if (image.dataset.notebookImageId) return 'attachment:' + image.dataset.notebookImageId;
+  if (image.dataset.notebookPdfId) return 'attachment:' + image.dataset.notebookPdfId;
   return '';
 }
 
@@ -197,14 +198,16 @@ function notebookInlineImageDoubleClick(event) {
 // Der Direkt-Editor arbeitet auf dem gespeicherten Anhang. Ein gerade
 // eingefuegtes Bild liegt noch nicht in der Ablage und hat darum keine Kennung.
 function notebookOpenImageEditor(image) {
-  var attachmentId = image && image.dataset.notebookImageId;
+  var isPdf = image && image.dataset.notebookPdf === '1';
+  var attachmentId = image && (isPdf ? image.dataset.notebookPdfId : image.dataset.notebookImageId);
   if (!attachmentId) {
-    notebookSetStatus('Das Bild muss erst mit der Notiz gespeichert werden, bevor es direkt bearbeitet werden kann.', 'error');
+    notebookSetStatus((isPdf ? 'Die PDF' : 'Das Bild') + ' muss erst mit der Notiz gespeichert werden, bevor sie direkt bearbeitet werden kann.', 'error');
     return;
   }
-  if (typeof kbOpenDirectImageEditor !== 'function') return;
+  var open = isPdf ? window.kbOpenDirectPdfEditor : window.kbOpenDirectImageEditor;
+  if (typeof open !== 'function') return;
   notebookSetStatus('');
-  kbOpenDirectImageEditor(attachmentId);
+  open(attachmentId);
 }
 
 // Nach dem Direkt-Editor stimmt die Bildadresse nicht mehr: der Anhang behaelt
@@ -389,24 +392,33 @@ function notebookInlineImageKeyDown(event) {
   notebookScrollImageIntoView(image);
 }
 
+// Eine platzierte PDF ist dasselbe Element wie ein platziertes Bild, nur mit der
+// ersten Seite als Vorschau und einer eigenen Kennung. Dadurch gilt die
+// Verschiebe- und Groessenmechanik unveraendert auch fuer sie.
 function notebookMakeInlineImage(options, editable) {
   var image = document.createElement('img');
-  image.className = 'notebook-inline-image';
+  image.className = 'notebook-inline-image' + (options.isPdf ? ' notebook-inline-pdf' : '');
   image.src = options.url;
-  image.alt = options.name || 'Bild in Notiz';
+  image.alt = options.name || (options.isPdf ? 'PDF in Notiz' : 'Bild in Notiz');
   image.draggable = false;
   image.contentEditable = 'false';
   // In der gespeicherten Notiz laesst sich das Bild oeffnen, im Editor
   // verschieben. Beides ueber die Tastatur erreichbar, darum immer im Tab-Lauf.
   image.tabIndex = 0;
   if (editable) {
-    image.title = 'Ziehen zum Verschieben, Ecke unten rechts fuer die Groesse. Doppelklick oder Enter oeffnet den Direkt-Editor. Pfeiltasten ruecken das Bild, mit Shift feiner.';
+    image.title = options.isPdf
+      ? 'Ziehen zum Verschieben, Ecke unten rechts fuer die Groesse. Doppelklick oder Enter oeffnet die PDF im Editor. Pfeiltasten ruecken sie, mit Shift feiner.'
+      : 'Ziehen zum Verschieben, Ecke unten rechts fuer die Groesse. Doppelklick oder Enter oeffnet den Direkt-Editor. Pfeiltasten ruecken das Bild, mit Shift feiner.';
   } else {
     image.title = 'Oeffnen: ' + image.alt;
     image.setAttribute('role', 'button');
   }
+  if (options.isPdf) image.dataset.notebookPdf = '1';
   if (options.localId) image.dataset.notebookLocalId = options.localId;
-  if (options.attachmentId) image.dataset.notebookImageId = options.attachmentId;
+  if (options.attachmentId) {
+    if (options.isPdf) image.dataset.notebookPdfId = options.attachmentId;
+    else image.dataset.notebookImageId = options.attachmentId;
+  }
   notebookSetImagePosition(image, options.x, options.y);
   if (options.width) notebookSetImageWidth(image, options.width);
   if (editable) {
@@ -579,6 +591,16 @@ function notebookRichElementIsEmpty(element) {
   return !element.firstChild && !element.textContent.trim();
 }
 
+// Laeuft nach dem Zeichnen weiter. Schlaegt es fehl, bleibt das Ersatzbild
+// stehen -- die Notiz ist dann trotzdem vollstaendig.
+function notebookLoadPdfThumbnail(element, attachmentId) {
+  if (typeof kbPdfThumbnailUrl !== 'function') return;
+  kbPdfThumbnailUrl(attachmentId).then(function(url) {
+    if (!url || !element.isConnected) return;
+    element.src = url;
+  }).catch(function() {});
+}
+
 function notebookSafeContentElement(content, entry, editable) {
   var result = document.createElement('div');
   var source = new DOMParser().parseFromString(String(content || ''), 'text/html');
@@ -599,21 +621,27 @@ function notebookSafeContentElement(content, entry, editable) {
         return;
       }
       if (tag === 'img') {
-        var attachmentId = node.getAttribute('data-notebook-image-id') || '';
+        var pdfId = node.getAttribute('data-notebook-pdf-id') || '';
+        var attachmentId = pdfId || node.getAttribute('data-notebook-image-id') || '';
         var attachment = notebookAttachmentById(entry, attachmentId);
-        if (attachment && attachment.preview_url) {
-          target.appendChild(notebookMakeInlineImage({
+        // Bilder haben eine fertige Adresse, PDFs bekommen ihre erste Seite
+        // nachgereicht -- das Zeichnen selbst darf nicht darauf warten.
+        if (attachment && (pdfId || attachment.preview_url)) {
+          var element = notebookMakeInlineImage({
             attachmentId: attachment.id,
-            url: attachment.preview_url,
+            isPdf: !!pdfId,
+            url: pdfId ? NOTEBOOK_PDF_FALLBACK_URL : attachment.preview_url,
             name: attachment.original_name,
             x: node.getAttribute('data-notebook-x'),
             y: node.getAttribute('data-notebook-y'),
             width: node.getAttribute('data-notebook-w')
-          }, editable));
+          }, editable);
+          target.appendChild(element);
+          if (pdfId) notebookLoadPdfThumbnail(element, attachment.id);
         } else if (attachmentId) {
           var placeholder = document.createElement('span');
           placeholder.className = 'notebook-inline-image-placeholder';
-          placeholder.textContent = 'Bild nicht verfügbar';
+          placeholder.textContent = pdfId ? 'PDF nicht verfügbar' : 'Bild nicht verfügbar';
           target.appendChild(placeholder);
         }
         return;
@@ -797,15 +825,16 @@ function notebookSerializeEditorContent() {
         return;
       }
       if (tag === 'img') {
-        var attachmentId = node.dataset.notebookImageId || '';
+        var isPdf = node.dataset.notebookPdf === '1';
+        var attachmentId = (isPdf ? node.dataset.notebookPdfId : node.dataset.notebookImageId) || '';
         if (!attachmentId && node.dataset.notebookLocalId) {
           var pending = notebookInlineImages.find(function(item) { return item.localId === node.dataset.notebookLocalId; });
           attachmentId = pending && pending.attachmentId || '';
         }
         if (!attachmentId) return;
         var image = document.createElement('img');
-        image.setAttribute('data-notebook-image-id', attachmentId);
-        image.setAttribute('alt', String(node.alt || 'Bild in Notiz').slice(0, 160));
+        image.setAttribute(isPdf ? 'data-notebook-pdf-id' : 'data-notebook-image-id', attachmentId);
+        image.setAttribute('alt', String(node.alt || (isPdf ? 'PDF in Notiz' : 'Bild in Notiz')).slice(0, 160));
         image.setAttribute('data-notebook-x', String(Math.round(notebookCoordinate(node.dataset.notebookX))));
         image.setAttribute('data-notebook-y', String(Math.round(notebookCoordinate(node.dataset.notebookY))));
         var width = notebookImageWidthAttribute(node);
@@ -884,12 +913,35 @@ function notebookInlineImageStart(dropEvent, index) {
   return { x: offset, y: scrollTop + offset };
 }
 
+function notebookIsPdfFile(file) {
+  return String(file.type || '') === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+}
+
+// Die abgelegte Datei liegt noch nicht in der Ablage. Die Vorschau entsteht
+// darum aus der Datei selbst, ohne Umweg ueber das Netz.
+async function notebookPdfPlaceholderUrl(file) {
+  try {
+    var bytes = new Uint8Array(await file.arrayBuffer());
+    var rendered = await kbPdfFirstPageCanvas(bytes, 480);
+    return rendered.canvas.toDataURL('image/png');
+  } catch (error) {
+    return NOTEBOOK_PDF_FALLBACK_URL;
+  }
+}
+
+var NOTEBOOK_PDF_FALLBACK_URL = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 155">' +
+  '<rect x="1" y="1" width="118" height="153" rx="4" fill="#f4f4f4" stroke="#bbb"/>' +
+  '<path d="M84 1v26h35" fill="none" stroke="#bbb"/>' +
+  '<text x="60" y="92" font-family="Arial,sans-serif" font-size="30" font-weight="bold" fill="#c0392b" text-anchor="middle">PDF</text>' +
+  '</svg>');
+
 function notebookInsertInlineFiles(files, dropEvent) {
   var valid = [];
   var invalid = [];
   Array.from(files || []).forEach(function(file) {
     var isImage = remoteImageAttachment({ mime_type: file.type || '' }) || /\.(jpe?g|png|webp)$/i.test(file.name || '');
-    if (!isImage || file.size > REMOTE_ATTACHMENT_MAX_SIZE) {
+    if ((!isImage && !notebookIsPdfFile(file)) || file.size > REMOTE_ATTACHMENT_MAX_SIZE) {
       invalid.push(file.name);
       return;
     }
@@ -897,20 +949,30 @@ function notebookInsertInlineFiles(files, dropEvent) {
   });
   valid.forEach(function(file) {
     var start = notebookInlineImageStart(dropEvent, notebookInlineImages.length);
+    var isPdf = notebookIsPdfFile(file);
     var item = {
       localId: 'notebook-image-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
       file: file,
       name: file.name,
-      url: URL.createObjectURL(file),
+      url: isPdf ? NOTEBOOK_PDF_FALLBACK_URL : URL.createObjectURL(file),
+      isPdf: isPdf,
       attachmentId: '',
       x: start.x,
       y: start.y
     };
     notebookInlineImages.push(item);
-    notebookInsertNode(notebookMakeInlineImage(item, true), dropEvent);
+    var element = notebookMakeInlineImage(item, true);
+    notebookInsertNode(element, dropEvent);
+    // Die erste Seite braucht einen Augenblick. Bis dahin steht das Ersatzbild.
+    if (isPdf) {
+      notebookPdfPlaceholderUrl(file).then(function(url) {
+        item.url = url;
+        element.src = url;
+      });
+    }
   });
-  if (invalid.length) notebookSetStatus('Nur JPG, PNG und WebP bis 25 MB können direkt im Text eingefügt werden: ' + invalid.join(', '), 'error');
-  else if (valid.length) notebookSetStatus(valid.length + ' Bild' + (valid.length === 1 ? '' : 'er') + ' eingefügt. Ziehen zum Verschieben, Pfeiltasten für die Feinausrichtung.', 'success');
+  if (invalid.length) notebookSetStatus('Nur JPG, PNG, WebP und PDF bis 25 MB können direkt im Text eingefügt werden: ' + invalid.join(', '), 'error');
+  else if (valid.length) notebookSetStatus(valid.length + (valid.length === 1 ? ' Datei' : ' Dateien') + ' eingefügt. Ziehen zum Verschieben, Pfeiltasten für die Feinausrichtung.', 'success');
 }
 
 function notebookHandleInlineImageSelection() {
@@ -1098,11 +1160,12 @@ async function notebookSave() {
     var uploadedAttachments = await uploadRemoteAttachments(response.data.id, files.concat(pendingInlineImages.map(function(item) { return item.file; })));
     pendingInlineImages.forEach(function(item, index) {
       var uploaded = uploadedAttachments[files.length + index];
-      if (!uploaded || !uploaded.attachment) throw new Error('Bild konnte nicht in die Notiz eingefügt werden.');
+      if (!uploaded || !uploaded.attachment) throw new Error('Die Datei konnte nicht in die Notiz eingefügt werden.');
       item.attachmentId = uploaded.attachment.id;
       var image = notebookFindInlineImage('local:' + item.localId);
       if (image) {
-        image.dataset.notebookImageId = item.attachmentId;
+        if (item.isPdf) image.dataset.notebookPdfId = item.attachmentId;
+        else image.dataset.notebookImageId = item.attachmentId;
         delete image.dataset.notebookLocalId;
       }
     });
@@ -1173,10 +1236,15 @@ notebookEditor().addEventListener('mouseup', notebookRememberSelection);
 function notebookRenderedImage(target) {
   if (!target || !target.classList || !target.classList.contains('notebook-inline-image')) return null;
   if (!target.closest || !target.closest('.notebook-rendered-content')) return null;
-  return target.dataset.notebookImageId ? target : null;
+  return target.dataset.notebookImageId || target.dataset.notebookPdfId ? target : null;
 }
 
 function notebookOpenRenderedImage(image) {
+  // Eine platzierte PDF gehoert in den Betrachter, nicht in den Bild-Editor.
+  if (image.dataset.notebookPdfId) {
+    if (typeof openRemoteAttachment === 'function') openRemoteAttachment(image.dataset.notebookPdfId);
+    return;
+  }
   if (typeof kbImageOpenDelayed !== 'function') return;
   kbImageOpenDelayed(image.dataset.notebookImageId);
 }
@@ -1194,9 +1262,13 @@ document.addEventListener('click', function(event) {
 // genau wie im Editor selbst.
 document.addEventListener('dblclick', function(event) {
   var image = notebookRenderedImage(event.target);
-  if (!image || typeof kbImageEditDirect !== 'function') return;
+  if (!image) return;
   event.preventDefault();
-  kbImageEditDirect(image.dataset.notebookImageId);
+  if (image.dataset.notebookPdfId) {
+    if (typeof kbOpenDirectPdfEditor === 'function') kbOpenDirectPdfEditor(image.dataset.notebookPdfId);
+    return;
+  }
+  if (typeof kbImageEditDirect === 'function') kbImageEditDirect(image.dataset.notebookImageId);
 });
 
 document.addEventListener('keydown', function(event) {

@@ -11,7 +11,7 @@ function isNotebookEntry(entry) {
 // Ein bearbeiteter Wissenseintrag bekommt dadurch seine Bilder zu sehen, ohne
 // deshalb im Notizbuch aufzutauchen.
 function kbEntryHasPlacedImages(entry) {
-  return !!entry && /data-notebook-image-id=/.test(String(entry.content || ''));
+  return !!entry && /data-notebook-(image|pdf)-id=/.test(String(entry.content || ''));
 }
 
 /* ════════════════════════════════════════════════════════════════

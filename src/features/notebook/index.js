@@ -446,16 +446,43 @@ function notebookColorValue(value) {
   }).join('');
 }
 
-// Weisser Text auf weissem Grund kommt aus hellen Vorlagen und waere hier
-// unlesbar. Die Notiz steht auf dunklem Untergrund.
 function notebookColorBrightness(color) {
   var value = color.slice(1);
   return parseInt(value.slice(0, 2), 16) * 0.299 + parseInt(value.slice(2, 4), 16) * 0.587 + parseInt(value.slice(4, 6), 16) * 0.114;
 }
 
-function notebookReadableColor(color) {
+// Die Notiz steht auf dunklem Untergrund, die Vorlage kam von weissem Papier.
+// Entscheidend ist der Grund, auf dem der Text am Ende wirklich liegt: eine
+// Hervorhebung faerbt den Grund hell, dann braucht der Text dunkle Schrift --
+// auch wenn OneNote eine helle mitschickt, etwa aus seinem dunklen Modus.
+function notebookContrastColor(color, background) {
+  if (background && notebookColorBrightness(background) > 140) {
+    return !color || notebookColorBrightness(color) > 140 ? '#111111' : color;
+  }
   if (!color) return '';
-  return notebookColorBrightness(color) < 40 ? '' : color;
+  return notebookColorBrightness(color) < 50 ? '' : color;
+}
+
+// OneNote schickt Punktgroessen, der kleine Editor font-Elemente. Beides landet
+// in wenigen festen Stufen, damit das Markup kurz bleibt.
+function notebookFontSize(node) {
+  var raw = String((node.style || {}).fontSize || '').trim().toLowerCase();
+  var match = raw.match(/^([\d.]+)(pt|px|em|rem|%)$/);
+  var ratio = 0;
+  if (match) {
+    var value = parseFloat(match[1]);
+    if (match[2] === 'pt') ratio = value / 11;
+    else if (match[2] === 'px') ratio = value / 15;
+    else if (match[2] === '%') ratio = value / 100;
+    else ratio = value;
+  } else if (node.tagName.toLowerCase() === 'font') {
+    ratio = { '1': 0.8, '2': 0.85, '3': 1, '4': 1.15, '5': 1.4, '6': 1.8, '7': 1.8 }[node.getAttribute('size')] || 0;
+  }
+  if (!ratio || (ratio >= 0.93 && ratio < 1.1)) return '';
+  if (ratio < 0.93) return '0.85em';
+  if (ratio < 1.28) return '1.15em';
+  if (ratio < 1.6) return '1.4em';
+  return '1.8em';
 }
 
 // Absaetze und Listen tragen keine bedeutsamen Leerzeichen. Zeilenumbrueche im
@@ -471,8 +498,9 @@ function notebookRichStyleOf(node) {
   var weight = String(style.fontWeight || '');
   var tag = node.tagName.toLowerCase();
   return {
-    color: notebookReadableColor(notebookColorValue(style.color || (tag === 'font' ? node.getAttribute('color') : ''))),
+    color: notebookColorValue(style.color || (tag === 'font' ? node.getAttribute('color') : '')),
     background: notebookColorValue(style.backgroundColor || style.background),
+    size: notebookFontSize(node),
     bold: weight === 'bold' || weight === 'bolder' || parseInt(weight, 10) >= 600,
     italic: String(style.fontStyle || '') === 'italic',
     underline: decoration.indexOf('underline') >= 0,
@@ -489,10 +517,35 @@ function notebookSafeHref(value) {
 
 // Liefert das Ersatzelement fuer einen Knoten: outer kommt in die Ausgabe,
 // inner nimmt die Kinder auf. null heisst: Element weglassen, Kinder behalten.
-function notebookRichElementFor(node) {
+// context beschreibt, was der Knoten von oben erbt: den Grund, auf dem er
+// liegt, und die Schriftfarbe, die dort schon gilt. Beides wandert weiter nach
+// unten -- sonst wird eine tiefer gesetzte Schriftfarbe gegen den falschen Grund
+// geprueft, und schon gesetzte Farben werden unnoetig wiederholt.
+var NOTEBOOK_ROOT_CONTEXT = { background: '', color: '' };
+
+function notebookStyleFor(node, context) {
+  context = context || NOTEBOOK_ROOT_CONTEXT;
+  var style = notebookRichStyleOf(node);
+  var background = style.background || context.background;
+  var color = notebookContrastColor(style.color, background);
+  // Ein heller Grund ohne eigene Schriftfarbe braucht trotzdem dunkle Schrift.
+  if (style.background && !color && notebookColorBrightness(style.background) > 140) color = '#111111';
+  var declarations = [];
+  if (color && color !== context.color) declarations.push('color:' + color);
+  if (style.background) declarations.push('background:' + style.background);
+  if (style.size) declarations.push('font-size:' + style.size);
+  return {
+    style: style,
+    declarations: declarations,
+    context: { background: background, color: color || context.color }
+  };
+}
+
+function notebookRichElementFor(node, context) {
   var tag = NOTEBOOK_RICH_TAGS[node.tagName.toLowerCase()];
   if (!tag) return null;
-  var style = notebookRichStyleOf(node);
+  var resolved = notebookStyleFor(node, context);
+  var style = resolved.style;
   var inner = document.createElement(tag);
   if (tag === 'a') {
     var href = notebookSafeHref(node.getAttribute('href'));
@@ -502,15 +555,7 @@ function notebookRichElementFor(node) {
       inner.setAttribute('rel', 'noopener');
     }
   }
-  var declarations = [];
-  if (style.color) declarations.push('color:' + style.color);
-  if (style.background) {
-    declarations.push('background:' + style.background);
-    // Heller Grund kommt aus einer hellen Vorlage. Ohne dunkle Schrift steht
-    // hier heller Text auf hellem Grund.
-    if (!style.color && notebookColorBrightness(style.background) > 140) declarations.push('color:#111111');
-  }
-  if (declarations.length) inner.setAttribute('style', declarations.join(';'));
+  if (resolved.declarations.length) inner.setAttribute('style', resolved.declarations.join(';'));
   var outer = inner;
   function wrap(name) { var element = document.createElement(name); element.appendChild(outer); outer = element; }
   if (style.strike && tag !== 's') wrap('s');
@@ -519,7 +564,15 @@ function notebookRichElementFor(node) {
   if (style.bold && tag !== 'b') wrap('b');
   // Ein span ohne Wirkung kostet nur Zeichen.
   if (tag === 'span' && outer === inner && !inner.hasAttribute('style')) return null;
-  return { outer: outer, inner: inner };
+  return { outer: outer, inner: inner, context: resolved.context };
+}
+
+// Absaetze tragen in OneNote oft die Hervorhebung der ganzen Zeile.
+function notebookRichBlockFor(node, context) {
+  var resolved = notebookStyleFor(node, context);
+  var block = document.createElement('div');
+  if (resolved.declarations.length) block.setAttribute('style', resolved.declarations.join(';'));
+  return { block: block, context: resolved.context };
 }
 
 function notebookRichElementIsEmpty(element) {
@@ -529,7 +582,7 @@ function notebookRichElementIsEmpty(element) {
 function notebookSafeContentElement(content, entry, editable) {
   var result = document.createElement('div');
   var source = new DOMParser().parseFromString(String(content || ''), 'text/html');
-  function appendNodes(nodes, target) {
+  function appendNodes(nodes, target, context) {
     Array.from(nodes || []).forEach(function(node) {
       if (node.nodeType === Node.TEXT_NODE) {
         var value = String(node.nodeValue || '').replace(/[\r\n\t]+/g, ' ');
@@ -566,23 +619,23 @@ function notebookSafeContentElement(content, entry, editable) {
         return;
       }
       if (tag === 'div' || tag === 'p') {
-        var block = document.createElement('div');
-        appendNodes(node.childNodes, block);
+        var wrapper = notebookRichBlockFor(node, context);
+        appendNodes(node.childNodes, wrapper.block, wrapper.context);
         // Eine Leerzeile aus der Vorlage hat ohne Inhalt keine Hoehe.
-        if (!block.firstChild) block.appendChild(document.createElement('br'));
-        target.appendChild(block);
+        if (!wrapper.block.firstChild) wrapper.block.appendChild(document.createElement('br'));
+        target.appendChild(wrapper.block);
         return;
       }
-      var rich = notebookRichElementFor(node);
+      var rich = notebookRichElementFor(node, context);
       if (rich) {
-        appendNodes(node.childNodes, rich.inner);
+        appendNodes(node.childNodes, rich.inner, rich.context);
         if (!notebookRichElementIsEmpty(rich.inner)) target.appendChild(rich.outer);
         return;
       }
-      appendNodes(node.childNodes, target);
+      appendNodes(node.childNodes, target, context);
     });
   }
-  appendNodes(source.body.childNodes, result);
+  appendNodes(source.body.childNodes, result, NOTEBOOK_ROOT_CONTEXT);
   return result;
 }
 
@@ -596,9 +649,6 @@ function notebookSetEditorContent(content, entry) {
   notebookUpdateLengthHint();
 }
 
-// Formatierung aus OneNote kommt als HTML in der Zwischenablage. Der Browser
-// wuerde das komplette Fremdmarkup einsetzen; hier laeuft es durch dieselbe
-// Auswahl wie eine gespeicherte Notiz.
 // Ein Screenshot aus Windows oder macOS liegt als Bilddatei in der
 // Zwischenablage, nicht als Text.
 function notebookClipboardImageFiles(data) {
@@ -620,6 +670,46 @@ function notebookNamedImageFile(file) {
   try { return new File([file], name, { type: file.type || 'image/png' }); } catch (error) { return file; }
 }
 
+// Der Farbwaehler nimmt den Fokus aus dem Textfeld und damit die Auswahl mit.
+// Sie wird darum vorher gemerkt und vor dem Anwenden zurueckgesetzt.
+var notebookSavedRange = null;
+
+function notebookRememberSelection() {
+  var editor = notebookEditor();
+  var selection = window.getSelection();
+  if (!editor || !selection || !selection.rangeCount) return;
+  if (editor.contains(selection.anchorNode)) notebookSavedRange = selection.getRangeAt(0).cloneRange();
+}
+
+function notebookRestoreSelection() {
+  var editor = notebookEditor();
+  if (!notebookSavedRange || !editor || !editor.contains(notebookSavedRange.startContainer)) return;
+  var selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(notebookSavedRange);
+}
+
+// execCommand gilt als veraltet, ist aber der einzige Weg, der ohne
+// Fremdbibliothek in jedem Browser auf einer Auswahl arbeitet. styleWithCSS aus
+// heisst: b, i und font statt langer style-Attribute, das spart Zeichen.
+function notebookFormatCommand(command, value) {
+  var editor = notebookEditor();
+  if (!editor) return;
+  editor.focus();
+  notebookRestoreSelection();
+  try {
+    document.execCommand('styleWithCSS', false, false);
+    document.execCommand(command, false, value);
+  } catch (error) {
+    return;
+  }
+  notebookRememberSelection();
+  notebookUpdateLengthHint();
+}
+
+// Formatierung aus OneNote kommt als HTML in der Zwischenablage. Der Browser
+// wuerde das komplette Fremdmarkup einsetzen; hier laeuft es durch dieselbe
+// Auswahl wie eine gespeicherte Notiz.
 function notebookHandlePaste(event) {
   var data = event.clipboardData;
   if (!data) return;
@@ -694,7 +784,7 @@ function notebookSerializeEditorContent() {
   var editor = notebookEditor();
   var result = document.createElement('div');
   if (!editor) return '';
-  function copyNodes(nodes, target) {
+  function copyNodes(nodes, target, context) {
     Array.from(nodes || []).forEach(function(node) {
       if (node.nodeType === Node.TEXT_NODE) {
         target.appendChild(document.createTextNode(node.nodeValue || ''));
@@ -724,21 +814,23 @@ function notebookSerializeEditorContent() {
         return;
       }
       if (tag === 'div' || tag === 'p') {
-        var block = document.createElement('div');
-        copyNodes(node.childNodes, block);
-        target.appendChild(block);
+        var wrapper = notebookRichBlockFor(node, context);
+        copyNodes(node.childNodes, wrapper.block, wrapper.context);
+        // Eine Leerzeile bleibt nur sichtbar, wenn der Block etwas enthaelt.
+        if (!wrapper.block.firstChild) wrapper.block.appendChild(document.createElement('br'));
+        target.appendChild(wrapper.block);
         return;
       }
-      var rich = notebookRichElementFor(node);
+      var rich = notebookRichElementFor(node, context);
       if (rich) {
-        copyNodes(node.childNodes, rich.inner);
+        copyNodes(node.childNodes, rich.inner, rich.context);
         if (!notebookRichElementIsEmpty(rich.inner)) target.appendChild(rich.outer);
         return;
       }
-      copyNodes(node.childNodes, target);
+      copyNodes(node.childNodes, target, context);
     });
   }
-  copyNodes(editor.childNodes, result);
+  copyNodes(editor.childNodes, result, NOTEBOOK_ROOT_CONTEXT);
   return result.innerHTML.trim();
 }
 
@@ -1042,6 +1134,39 @@ document.getElementById('notebook-form').addEventListener('submit', async functi
 document.getElementById('notebook-inline-images').addEventListener('change', notebookHandleInlineImageSelection);
 notebookEditor().addEventListener('paste', notebookHandlePaste);
 notebookEditor().addEventListener('input', notebookUpdateLengthHint);
+notebookEditor().addEventListener('keyup', notebookRememberSelection);
+notebookEditor().addEventListener('mouseup', notebookRememberSelection);
+
+(function bindNotebookFormatTools() {
+  var tools = document.getElementById('notebook-format-tools');
+  if (!tools) return;
+  // Ohne das bliebe die Auswahl im Textfeld nicht bestehen, sobald ein Knopf
+  // den Fokus bekommt.
+  tools.addEventListener('mousedown', function(event) {
+    if (event.target.closest('button, label')) event.preventDefault();
+  });
+  tools.addEventListener('click', function(event) {
+    var button = event.target.closest('[data-command]');
+    if (button) notebookFormatCommand(button.dataset.command);
+  });
+  document.getElementById('notebook-format-size').addEventListener('change', function() {
+    notebookFormatCommand('fontSize', this.value);
+  });
+  // Der Waehler selbst ist unsichtbar, darum traegt sein Knopf die Farbe.
+  function bindColorTool(id, command) {
+    var input = document.getElementById(id);
+    if (!input) return;
+    function showSwatch() { input.parentElement.style.borderBottomColor = input.value; }
+    input.parentElement.classList.add('has-swatch');
+    showSwatch();
+    input.addEventListener('input', function() {
+      showSwatch();
+      notebookFormatCommand(command, input.value);
+    });
+  }
+  bindColorTool('notebook-format-color', 'foreColor');
+  bindColorTool('notebook-format-highlight', 'hiliteColor');
+})();
 // Gerenderte Notizen entstehen ueber innerHTML, dabei gehen Listener an den
 // Bildern verloren. Klick und Tastatur laufen darum ueber das Dokument. Das gilt
 // auch fuer Notizen, die die Wissensdatenbank zeichnet.

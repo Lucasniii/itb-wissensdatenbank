@@ -132,9 +132,21 @@ function notebookFitRenderedContent(container) {
   container.style.minHeight = requiredHeight ? requiredHeight + 'px' : '';
 }
 
+// Gespeicherte Notizen entstehen ueber innerHTML. Die Elemente, an denen der
+// Nachlader haengt, werden dabei verworfen und aus der Zeichenkette neu
+// aufgebaut -- die erste Seite muss darum hier noch einmal angefordert werden.
+function notebookRefreshPlacedPdfs(root) {
+  Array.from((root || document).querySelectorAll('img[data-notebook-pdf-id]')).forEach(function(image) {
+    if (image.dataset.notebookPdfLoaded === '1') return;
+    image.dataset.notebookPdfLoaded = '1';
+    notebookLoadPdfThumbnail(image, image.dataset.notebookPdfId);
+  });
+}
+
 function notebookFitAllRenderedContent(root) {
   Array.from((root || document).querySelectorAll('.notebook-rendered-content')).forEach(notebookFitRenderedContent);
   Array.from((root || document).querySelectorAll('.notebook-rendered-content img.notebook-inline-image')).forEach(notebookWatchRenderedImage);
+  notebookRefreshPlacedPdfs(root);
 }
 
 // Wird eine Notiz in einem zugeklappten Bereich gezeichnet, hat ihr Bild noch

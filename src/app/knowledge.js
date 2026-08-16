@@ -1336,6 +1336,7 @@ function kbAdminRender() {
       '<div class="kb-inbox-heading"><h3>Freigabe-Inbox</h3><span class="admin-badge kb-inbox-count">' + drafts.length + ' offen</span></div>' +
       (drafts.length ? drafts.map(function(entry) { return remoteEntryHtml(entry, { admin: true, editable: true }); }).join('') : '<div class="kb-inbox-empty">Keine Entwürfe warten auf Freigabe.</div>') +
     '</section>';
+  notebookFitAllRenderedContent(list);
 }
 
 function kbLibraryEntryMatches(entry, query) {
@@ -1490,6 +1491,9 @@ function kbRenderSearch() {
   if (!query) { results.innerHTML = ''; return; }
   var entries = remoteKnowledgeEntries.filter(function(entry) { return entry.status === 'published' && remoteEntryMatches(entry, query); });
   results.innerHTML = entries.length ? entries.map(function(entry) { return remoteEntryHtml(entry, {}); }).join('') : '<div class="kb-empty">Keine Informationen zu dieser Suche gefunden.</div>';
+  // Platzierte Bilder fallen aus dem Textfluss, ihr Container braucht eine
+  // gemessene Hoehe. Platzierte PDFs holen hier ihre erste Seite nach.
+  notebookFitAllRenderedContent(results);
 }
 
 function renderTechDrafts() {

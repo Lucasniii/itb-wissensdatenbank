@@ -238,6 +238,22 @@ async function indexAllPublishedDocuments(adminClient) {
   return indexed
 }
 
+async function indexEntryDocuments(adminClient, entryId: string) {
+  const chunks = await adminClient
+    .from('knowledge_document_chunks')
+    .select('attachment_id,knowledge_entries!inner(status)')
+    .eq('entry_id', entryId)
+    .eq('knowledge_entries.status', 'published')
+  if (chunks.error) throw chunks.error
+
+  let indexed = 0
+  const attachmentIds = [...new Set((chunks.data || []).map((chunk) => chunk.attachment_id))]
+  for (const attachmentId of attachmentIds) {
+    indexed += await indexDocument(adminClient, attachmentId)
+  }
+  return indexed
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (request.method !== 'POST') return response({ error: 'Nur POST-Anfragen sind erlaubt.' }, 405)
@@ -313,7 +329,7 @@ Deno.serve(async (request) => {
       })
     }
 
-    if (!caller.isAdmin) return response({ error: 'Nur Admins dürfen den KI-Suchindex aktualisieren.' }, 403)
+    if (!caller.isAdmin) return response({ error: 'Nur Admins dürfen diese KI-Aktion ausführen.' }, 403)
 
     const adminClient = createClient(supabaseUrl, secretKey)
     if (action === 'index_entry') {
@@ -327,6 +343,13 @@ Deno.serve(async (request) => {
       const attachmentId = String(body?.attachment_id || '')
       if (!attachmentId) return response({ error: 'PDF-Anhangs-ID fehlt.' }, 400)
       const indexed = await indexDocument(adminClient, attachmentId)
+      return response({ document_chunks_indexed: indexed })
+    }
+
+    if (action === 'index_entry_documents') {
+      const entryId = String(body?.entry_id || '')
+      if (!entryId) return response({ error: 'Eintrags-ID fehlt.' }, 400)
+      const indexed = await indexEntryDocuments(adminClient, entryId)
       return response({ document_chunks_indexed: indexed })
     }
 

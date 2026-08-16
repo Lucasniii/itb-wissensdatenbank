@@ -25,6 +25,31 @@ function kbPdfEditorStoredLayer(attachment) {
   return Array.isArray(layers) ? (layers[0] || null) : (layers || null);
 }
 
+// Farben, die auf einem Anschlussplan oder Foto tragen. Der Waehler daneben
+// bleibt fuer alles andere.
+var KB_PDF_EDITOR_SWATCHES = ['#cc0000', '#ff7700', '#ffd400', '#22aa44', '#0066cc', '#000000', '#ffffff'];
+
+function kbPdfEditorRenderSwatches() {
+  var target = document.getElementById('kb-pdf-editor-swatches');
+  var input = document.getElementById('kb-pdf-editor-color');
+  if (!target || !input) return;
+  var current = String(input.value || '').toLowerCase();
+  // Wie im Notizbuch traegt der Knopf selbst die gewaehlte Farbe.
+  if (input.parentElement) input.parentElement.style.borderBottomColor = input.value;
+  target.innerHTML = KB_PDF_EDITOR_SWATCHES.map(function(color) {
+    return '<button type="button" class="kb-pdf-editor-swatch' + (color === current ? ' active' : '') +
+      '" style="background:' + color + '" data-kb-pdf-color="' + color + '" title="' + color + '" aria-label="Farbe ' + color + '"></button>';
+  }).join('');
+}
+
+function kbPdfEditorPickColor(color) {
+  var input = document.getElementById('kb-pdf-editor-color');
+  if (!input) return;
+  input.value = color;
+  kbPdfEditorRenderSwatches();
+  kbPdfEditorApplySelectedColor(true);
+}
+
 // Pfeilstaerke aus der Seitenleiste. Die Grenzen sind dieselben wie beim
 // Einlesen gespeicherter Zeiger.
 function kbPdfEditorLineWidth() {
@@ -107,7 +132,7 @@ function kbPdfEditorAnnotationBounds(annotation, pageNumber) {
     return { x: left, y: top, width: Math.max(0.015, Math.abs(annotation.endX - annotation.x)), height: Math.max(0.015, Math.abs(annotation.endY - annotation.y)) };
   }
   if (annotation.type === 'text') {
-    var scale = view && view.renderScale || 1;
+    var scale = kbPdfEditorDrawUnit(canvas, view);
     var lines = String(annotation.text || '').split(/\r?\n/);
     var longest = lines.reduce(function(length, line) { return Math.max(length, line.length); }, 0);
     var width = canvas ? Math.max(0.12, Math.min(0.75, longest * Math.max(8, annotation.fontSize || 14) * scale * 0.62 / canvas.width)) : 0.3;
@@ -175,8 +200,10 @@ function kbPdfEditorUpdateSelectionUI() {
     text.value = selected.text || '';
     document.getElementById('kb-pdf-editor-size').value = selected.fontSize || 14;
     document.getElementById('kb-pdf-editor-color').value = selected.color || '#000000';
+    kbPdfEditorRenderSwatches();
   } else if (selected.type === 'marker' || selected.type === 'arrow') {
     document.getElementById('kb-pdf-editor-color').value = selected.color || '#000000';
+    kbPdfEditorRenderSwatches();
     // Beim Auswaehlen zeigt das Feld die Staerke des Zeigers, statt sie zu ueberschreiben.
     if (selected.type === 'arrow') document.getElementById('kb-pdf-editor-line').value = selected.lineWidth || 2.5;
   }
@@ -308,6 +335,14 @@ function kbPdfEditorClamp(value, minimum, maximum, fallback) {
   return Math.max(minimum, Math.min(maximum, number));
 }
 
+// Umrechnung von Strichstaerke und Schriftgroesse in Bildpunkte. Bei einer PDF
+// gibt der Zoom den Massstab. Bei einem Foto steht renderScale dagegen auf 1,
+// waehrend das Canvas so gross ist wie die Aufnahme -- ein Strich von 10 waere
+// dort ein Haar. Darum waechst die Einheit mit der Breite mit.
+function kbPdfEditorDrawUnit(canvas, view) {
+  return Math.max((view && view.renderScale) || 1, (canvas ? canvas.width : 0) / 1000);
+}
+
 function kbPdfEditorDrawArrow(context, annotation, canvas, view) {
   if (!canvas || !view) return;
   var startX = annotation.x * canvas.width;
@@ -317,8 +352,10 @@ function kbPdfEditorDrawArrow(context, annotation, canvas, view) {
   var angle = Math.atan2(endY - startY, endX - startX);
   var length = Math.hypot(endX - startX, endY - startY);
   if (length < 3) return;
-  var lineWidth = Math.max(2, (annotation.lineWidth || 2.5) * view.renderScale);
-  var headLength = Math.max(10, Math.min(22, length * 0.17));
+  var unit = kbPdfEditorDrawUnit(canvas, view);
+  var lineWidth = Math.max(2, (annotation.lineWidth || 2.5) * unit);
+  // Die Spitze muss zur Staerke passen, sonst endet ein dicker Strich in einer Nadel.
+  var headLength = Math.max(lineWidth * 3, Math.min(22 * unit, length * 0.17));
   context.save();
   context.strokeStyle = annotation.color || '#000000';
   context.fillStyle = annotation.color || '#000000';
@@ -346,13 +383,13 @@ function kbPdfEditorDrawSelectionOutline(context, pageNumber, canvas) {
   if (!bounds) return;
   context.save();
   context.strokeStyle = selected.color || '#f1ae55';
-  context.lineWidth = 2;
+  context.lineWidth = 2 * kbPdfEditorDrawUnit(canvas, kbPdfEditorPageView(pageNumber));
   if (selected.type !== 'arrow' && selected.type !== 'text') {
     context.setLineDash([6, 4]);
     context.strokeRect(bounds.x * canvas.width - 3, bounds.y * canvas.height - 3, bounds.width * canvas.width + 6, bounds.height * canvas.height + 6);
   }
   if (selected.type === 'arrow') {
-    var handleRadius = Math.max(3, Math.min(5, Math.min(canvas.width, canvas.height) * 0.006));
+    var handleRadius = Math.max(4, Math.min(canvas.width, canvas.height) * 0.008);
     context.setLineDash([]);
     context.fillStyle = '#ffffff';
     context.strokeStyle = selected.color || '#f1ae55';
@@ -385,7 +422,7 @@ function kbPdfEditorDrawAnnotation(context, annotation, canvas, view) {
     return;
   }
   if (annotation.type === 'text') {
-    var size = Math.max(8, annotation.fontSize * view.renderScale);
+    var size = Math.max(8, annotation.fontSize * kbPdfEditorDrawUnit(canvas, view));
     context.save();
     context.fillStyle = annotation.color;
     context.font = '700 ' + size + 'px Roboto, Arial, sans-serif';

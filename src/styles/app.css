@@ -584,11 +584,16 @@
   .kb-pdf-editor-sidebar h3 { margin: 0 0 12px; font: 700 0.72rem 'Roboto', Arial, sans-serif; color: var(--text); }
   .kb-pdf-toolset { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 15px; }
   .kb-pdf-toolset .admin-mini-btn.active { color: #111; border-color: var(--accent); background: var(--accent); }
-  /* Die Formularstile geben dem Farbfeld Innenabstand und dunklen Grund, damit
-     bleibt von der gewaehlten Farbe nichts sichtbar. */
-  .kb-pdf-editor-color { height: 36px; padding: 3px; cursor: pointer; }
-  .kb-pdf-editor-color::-webkit-color-swatch-wrapper { padding: 0; }
-  .kb-pdf-editor-color::-webkit-color-swatch { border: 1px solid var(--border); border-radius: 2px; }
+  /* Derselbe Waehler wie im Notizbuch: der Knopf traegt die Farbe, das Feld
+     dahinter bleibt unsichtbar. Daneben die gebraeuchlichen Farben zum Tippen. */
+  .kb-pdf-editor-colors { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .kb-pdf-editor-swatches { display: flex; gap: 5px; flex-wrap: wrap; }
+  .kb-pdf-editor-swatch {
+    width: 24px; height: 24px; padding: 0; border: 1px solid var(--border); border-radius: 3px;
+    cursor: pointer; transition: transform 0.12s, border-color 0.12s;
+  }
+  .kb-pdf-editor-swatch:hover { transform: scale(1.1); border-color: var(--text); }
+  .kb-pdf-editor-swatch.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .kb-pdf-editor-sidebar .admin-field { margin-bottom: 12px; }
   .kb-pdf-editor-sidebar .admin-textarea { min-height: 82px; }
   .kb-pdf-editor-help { color: var(--muted); font-size: 0.65rem; line-height: 1.5; margin: 0 0 12px; }

@@ -474,7 +474,13 @@
         </div>
         <div class="admin-field">
           <label for="kb-pdf-editor-color">Farbe</label>
-          <input id="kb-pdf-editor-color" class="admin-input kb-pdf-editor-color" type="color" value="#cc0000">
+          <div class="kb-pdf-editor-colors">
+            <label class="notebook-format-color has-swatch" title="Farbe wählen">
+              <span class="notebook-format-letter" aria-hidden="true">A</span>
+              <input id="kb-pdf-editor-color" type="color" value="#cc0000" aria-label="Farbe wählen">
+            </label>
+            <div class="kb-pdf-editor-swatches" id="kb-pdf-editor-swatches"></div>
+          </div>
         </div>
         <p id="kb-pdf-editor-help" class="kb-pdf-editor-help">Text auf die gewünschte Position klicken. Bei Markieren und Zeiger mit gedrückter Maustaste ziehen. Mit Auswahl kannst du Elemente verschieben, ihren Text ändern oder löschen. Beim ausgewählten Zeiger drehen oder verlängern die runden Griffe an seinen Enden den Pfeil.</p>
         <div class="admin-actions">

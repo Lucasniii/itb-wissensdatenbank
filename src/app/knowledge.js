@@ -972,6 +972,9 @@ async function kbAdminImportHtmlPackage() {
     }
     var chunkCount = 0;
     if (converted.chunks.length) chunkCount = await kbStorePdfSearchChunks(created.data.id, attachment, converted.chunks);
+    // Wie beim Hochladen: die PDF steht danach im Text und laesst sich dort
+    // verschieben und oeffnen.
+    await kbPlaceUploadsInContent(created.data.id, '', [{ attachment: attachment, isPdf: true }]);
     await loadRemoteKnowledge();
     input.value = '';
     kbAdminHtmlImportPackage = null;
@@ -1036,6 +1039,8 @@ async function kbAdminImportPdfs() {
         var attachments = await uploadRemoteAttachments(created.data.id, [file]);
         if (!attachments.length || !attachments[0].isPdf) throw new Error('Die PDF konnte nicht als Anhang gespeichert werden.');
         storedChunks += await kbStorePdfSearchChunks(created.data.id, attachments[0].attachment, chunks);
+        // Wie beim Hochladen: die PDF steht danach im Text des Entwurfs.
+        await kbPlaceUploadsInContent(created.data.id, '', attachments);
         importedTitles[titleKey] = true;
         imported += 1;
       } catch (error) {

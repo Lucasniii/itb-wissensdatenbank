@@ -503,7 +503,10 @@ function kbSetAdminEditState(entry) {
         ? '<button type="button" class="admin-mini-btn" onclick="kbOpenDirectPdfEditor(\'' + file.id + '\')">Direkt bearbeiten</button>' +
           '<button type="button" class="admin-mini-btn" onclick="downloadRemoteAttachment(\'' + file.id + '\')">Herunterladen</button>' +
           '<button type="button" class="admin-mini-btn" onclick="kbChooseRemotePdfReplacement(\'' + file.id + '\')">Ersetzen</button>'
-        : '';
+        : (remoteImageAttachment(file)
+          ? '<button type="button" class="admin-mini-btn" onclick="kbOpenDirectImageEditor(\'' + file.id + '\')">Bild bearbeiten</button>' +
+            '<button type="button" class="admin-mini-btn" onclick="downloadRemoteAttachment(\'' + file.id + '\')">Herunterladen</button>'
+          : '');
       return '<div class="kb-edit-attachment">' +
         '<span class="kb-edit-attachment-name">' + zcEsc(attachmentKind(file.mime_type)) + ': ' + zcEsc(file.original_name) + ' (' + kbFormatFileSize(file.size_bytes) + ')</span>' +
         '<button type="button" class="admin-mini-btn" onclick="openRemoteAttachment(\'' + file.id + '\')">Öffnen</button>' +

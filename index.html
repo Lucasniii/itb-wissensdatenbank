@@ -316,9 +316,26 @@
         </div>
         <div>
           <div class="admin-tools">
-            <input id="kb-admin-search" class="admin-input" type="search" placeholder="Wissenseinträge durchsuchen …" oninput="kbAdminRender()">
+            <input id="kb-admin-search" class="admin-input" type="search" placeholder="Freigabe-Inbox durchsuchen …" oninput="kbAdminRender()">
           </div>
           <div id="kb-admin-list" class="admin-feature-list"></div>
+          <details class="kb-admin-library">
+            <summary class="kb-admin-library-head">
+              <span>
+                <span id="kb-library-title" class="kb-admin-library-title">Bibliothek <span id="kb-library-count" class="admin-badge">0</span></span>
+                <span class="kb-admin-library-copy">Alle Wissenseinträge, Bilder und PDFs anzeigen</span>
+              </span>
+            </summary>
+            <div class="kb-admin-library-body">
+              <div class="kb-admin-library-tools">
+                <input id="kb-library-search" class="admin-input" type="search" placeholder="Bibliothek durchsuchen …" oninput="kbLibraryRender()">
+                <select id="kb-library-category" class="admin-select" onchange="kbLibraryRender()">
+                  <option value="">Alle Kategorien</option>
+                </select>
+              </div>
+              <div id="kb-library-list" class="kb-library-list"></div>
+            </div>
+          </details>
         </div>
       </div>
       <div class="kb-ai-index">
@@ -486,7 +503,7 @@
           <input id="kb-pdf-editor-image" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png">
           <div id="kb-pdf-editor-image-name" class="kb-pdf-editor-image-name"></div>
         </div>
-        <p class="kb-pdf-editor-help">Text oder Foto auf die gewünschte Position klicken. Bei Markieren und Zeiger mit gedrückter Maustaste ziehen. Mit Auswahl kannst du Elemente verschieben, ihren Text ändern oder löschen. Beim ausgewählten Zeiger drehen oder verlängern die runden Griffe an seinen Enden den Pfeil.</p>
+        <p id="kb-pdf-editor-help" class="kb-pdf-editor-help">Text oder Foto auf die gewünschte Position klicken. Bei Markieren und Zeiger mit gedrückter Maustaste ziehen. Mit Auswahl kannst du Elemente verschieben, ihren Text ändern oder löschen. Beim ausgewählten Zeiger drehen oder verlängern die runden Griffe an seinen Enden den Pfeil.</p>
         <div class="admin-actions">
           <button id="kb-pdf-editor-apply-selection" type="button" class="admin-mini-btn" onclick="kbPdfEditorApplySelectedStyle()" disabled>Auswahl aktualisieren</button>
           <button id="kb-pdf-editor-delete-selection" type="button" class="admin-mini-btn delete" onclick="kbPdfEditorDeleteSelected()" disabled>Auswahl löschen</button>
@@ -498,7 +515,7 @@
       </aside>
     </div>
     <div class="kb-pdf-editor-footer">
-      <span>Die bearbeitete PDF wird ersetzt; Text, Markierungen und Zeiger bleiben als editierbare Ebenen erhalten.</span>
+      <span id="kb-pdf-editor-footer-copy">Die bearbeitete PDF wird ersetzt; Text, Markierungen und Zeiger bleiben als editierbare Ebenen erhalten.</span>
       <div class="admin-actions">
         <button type="button" class="admin-btn" onclick="kbCloseDirectPdfEditor()">Abbrechen</button>
         <button id="kb-pdf-editor-save" type="button" class="admin-btn primary" onclick="kbSaveDirectPdfEditor()">PDF speichern &amp; ersetzen</button>

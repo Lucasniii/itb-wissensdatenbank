@@ -608,12 +608,13 @@ async function kbRemovePdf(entryId, pdfId) {
 
 function kbAdminRender() {
   var list = document.getElementById('kb-admin-list');
+  // Das Zaehler-Badge ist optional, die Liste wird auch ohne gezeichnet.
   var count = document.getElementById('kb-admin-count');
-  if (!list || !count) return;
+  if (!list) return;
   var query = (document.getElementById('kb-admin-search').value || '').trim().toLowerCase();
   var entries = kbEntries.slice().sort(function(a, b) { return a.category.localeCompare(b.category) || a.title.localeCompare(b.title); })
     .filter(function(entry) { return kbMatches(entry, query); });
-  count.textContent = kbEntries.length;
+  if (count) count.textContent = kbEntries.length;
   list.innerHTML = entries.length ? entries.map(function(entry) { return kbRenderEntry(entry, true); }).join('') :
     '<div class="zc-empty">' + (kbEntries.length ? 'Keine Wissenseinträge zur Suche gefunden.' : 'Noch keine Wissenseinträge hinterlegt.') + '</div>';
 }

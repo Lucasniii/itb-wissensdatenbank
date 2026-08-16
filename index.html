@@ -240,8 +240,7 @@
 <section class="view" id="view-admin">
   <div class="admin-wrap">
     <section class="admin-panel">
-      <h2>Wissensdatenbank <span id="kb-admin-count" class="admin-badge">0</span></h2>
-      <nav class="admin-subtabs">
+      <nav class="admin-subtabs" aria-label="Wissensdatenbank">
         <button class="admin-subtab active" type="button" data-admin-view="freigaben">Freigaben &amp; Upload</button>
         <button class="admin-subtab" type="button" data-admin-view="bibliothek">Bibliothek <span id="kb-library-count" class="admin-badge">0</span></button>
       </nav>
@@ -335,6 +334,7 @@
             <option value="">Alle Kategorien</option>
           </select>
         </div>
+        <div id="kb-library-status" class="pdf-template-hint" aria-live="polite"></div>
         <div id="kb-library-list" class="kb-library-list"></div>
       </div>
       <div class="kb-ai-index">

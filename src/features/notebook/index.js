@@ -649,6 +649,10 @@ function notebookSetStatus(message, type) {
   if (!status) return;
   status.textContent = message || '';
   status.className = 'pdf-template-hint' + (type ? ' ' + type : '');
+  // Beim Bearbeiten aus der Bibliothek heraus steht das Formular nach dem
+  // Speichern wieder im Notizbuch. Die Meldung gehoert trotzdem dorthin, wo
+  // gearbeitet wurde.
+  if (typeof kbLibraryMirrorStatus === 'function') kbLibraryMirrorStatus(message, type);
 }
 
 function notebookEntries() {
@@ -693,6 +697,9 @@ function notebookResetForm() {
   document.getElementById('notebook-file-preview').innerHTML = '';
   notebookSetStatus('', '');
   notebookSetEditState(null);
+  // Steht das Formular gerade in einem Bibliothek-Eintrag, gehoert es zurueck
+  // ins Notizbuch, sobald die Bearbeitung endet.
+  if (typeof kbLibraryReleaseNotebookForm === 'function') kbLibraryReleaseNotebookForm();
 }
 
 function notebookRender() {
@@ -727,7 +734,10 @@ function notebookEdit(id) {
 
 // Auch Wissenseintraege koennen hier bearbeitet werden. Ihr Befehl-Feld darf
 // dabei nicht verlorengehen, denn die Notizbuch-Markierung wohnt im selben Feld.
-function notebookLoadIntoEditor(entry) {
+// options.keepView laesst die aktuelle Ansicht stehen. Die Bibliothek holt sich
+// das Formular in ihren Eintrag und will nicht ins Notizbuch springen.
+function notebookLoadIntoEditor(entry, options) {
+  options = options || {};
   var form = document.getElementById('notebook-form');
   form.setAttribute('data-kb-id', entry.id);
   form.setAttribute('data-kb-command', entry.command || '');
@@ -744,7 +754,7 @@ function notebookLoadIntoEditor(entry) {
   document.getElementById('notebook-file-preview').innerHTML = '';
   notebookSetEditState(entry);
   notebookSetStatus('', '');
-  showActiveView('notebook');
+  if (!options.keepView) showActiveView('notebook');
   window.setTimeout(function() { document.getElementById('notebook-title').focus(); }, 0);
 }
 
@@ -831,15 +841,26 @@ function notebookRenderedImage(target) {
 }
 
 function notebookOpenRenderedImage(image) {
-  if (typeof openRemoteAttachment !== 'function') return;
-  openRemoteAttachment(image.dataset.notebookImageId);
+  if (typeof kbImageOpenDelayed !== 'function') return;
+  kbImageOpenDelayed(image.dataset.notebookImageId);
 }
 
 document.addEventListener('click', function(event) {
   var image = notebookRenderedImage(event.target);
   if (!image) return;
   event.preventDefault();
+  // Der zweite Klick eines Doppelklicks gehoert dem Direkt-Editor.
+  if (event.detail > 1) return;
   notebookOpenRenderedImage(image);
+});
+
+// Doppelklick auf ein Bild in einer gerenderten Notiz oeffnet den Direkt-Editor,
+// genau wie im Editor selbst.
+document.addEventListener('dblclick', function(event) {
+  var image = notebookRenderedImage(event.target);
+  if (!image || typeof kbImageEditDirect !== 'function') return;
+  event.preventDefault();
+  kbImageEditDirect(image.dataset.notebookImageId);
 });
 
 document.addEventListener('keydown', function(event) {

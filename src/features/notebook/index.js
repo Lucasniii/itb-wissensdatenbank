@@ -185,6 +185,44 @@ function notebookBindInlineImageMovement(image) {
   image.addEventListener('pointerdown', notebookInlineImagePointerDown);
   image.addEventListener('keydown', notebookInlineImageKeyDown);
   image.addEventListener('pointermove', notebookInlineImageHover);
+  image.addEventListener('dblclick', notebookInlineImageDoubleClick);
+}
+
+function notebookInlineImageDoubleClick(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  notebookOpenImageEditor(event.currentTarget);
+}
+
+// Der Direkt-Editor arbeitet auf dem gespeicherten Anhang. Ein gerade
+// eingefuegtes Bild liegt noch nicht in der Ablage und hat darum keine Kennung.
+function notebookOpenImageEditor(image) {
+  var attachmentId = image && image.dataset.notebookImageId;
+  if (!attachmentId) {
+    notebookSetStatus('Das Bild muss erst mit der Notiz gespeichert werden, bevor es direkt bearbeitet werden kann.', 'error');
+    return;
+  }
+  if (typeof kbOpenDirectImageEditor !== 'function') return;
+  notebookSetStatus('');
+  kbOpenDirectImageEditor(attachmentId);
+}
+
+// Nach dem Direkt-Editor stimmt die Bildadresse nicht mehr: der Anhang behaelt
+// seine Kennung, wird aber an einem neuen Ort abgelegt.
+function notebookRefreshInlineImageSources() {
+  var editor = notebookEditor();
+  if (!editor) return;
+  var adressen = {};
+  (typeof remoteKnowledgeEntries !== 'undefined' && Array.isArray(remoteKnowledgeEntries) ? remoteKnowledgeEntries : [])
+    .forEach(function(entry) {
+      (entry.knowledge_attachments || []).forEach(function(file) {
+        if (file.preview_url) adressen[file.id] = file.preview_url;
+      });
+    });
+  Array.from(editor.querySelectorAll('img.notebook-inline-image')).forEach(function(image) {
+    var url = adressen[image.dataset.notebookImageId];
+    if (url && image.getAttribute('src') !== url) image.setAttribute('src', url);
+  });
 }
 
 // Zeigt schon vor dem Klick, was die Ecke tut.
@@ -315,6 +353,12 @@ function notebookInlineImageKeyDown(event) {
   var image = event.currentTarget;
   var editor = notebookEditor();
   if (!editor) return;
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    event.stopPropagation();
+    notebookOpenImageEditor(image);
+    return;
+  }
   if (event.key === '+' || event.key === '-' || event.key === '_' || event.key === '=') {
     event.preventDefault();
     event.stopPropagation();
@@ -356,7 +400,7 @@ function notebookMakeInlineImage(options, editable) {
   // verschieben. Beides ueber die Tastatur erreichbar, darum immer im Tab-Lauf.
   image.tabIndex = 0;
   if (editable) {
-    image.title = 'Ziehen zum Verschieben. Angeklickt bewegen die Pfeiltasten das Bild, mit Shift feiner.';
+    image.title = 'Ziehen zum Verschieben, Ecke unten rechts fuer die Groesse. Doppelklick oder Enter oeffnet den Direkt-Editor. Pfeiltasten ruecken das Bild, mit Shift feiner.';
   } else {
     image.title = 'Oeffnen: ' + image.alt;
     image.setAttribute('role', 'button');

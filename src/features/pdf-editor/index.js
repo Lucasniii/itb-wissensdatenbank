@@ -1049,6 +1049,9 @@ async function kbSaveDirectImageEditor() {
     var refreshedEntry = remoteKnowledgeEntries.find(function(entry) { return entry.id === state.entry.id; });
     kbCloseDirectPdfEditor();
     if (editingId === state.entry.id && refreshedEntry && typeof kbSetAdminEditState === 'function') kbSetAdminEditState(refreshedEntry);
+    // Das bearbeitete Bild liegt jetzt woanders. Ein offener Notizbuch-Editor
+    // zeigt sonst weiter die alte Fassung.
+    if (typeof notebookRefreshInlineImageSources === 'function') notebookRefreshInlineImageSources();
     if (typeof kbSetPdfTemplateHint === 'function') kbSetPdfTemplateHint('Bearbeitetes Bild wurde ersetzt. Texte, Markierungen und Zeiger bleiben künftig editierbar.', 'success');
   } catch (error) {
     kbPdfEditorStatus('Speichern fehlgeschlagen: ' + (error && error.message ? error.message : 'Unbekannter Fehler'), 'error');

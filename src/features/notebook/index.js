@@ -4,6 +4,9 @@ var NOTEBOOK_NUDGE_STEP = 10;
 var NOTEBOOK_NUDGE_FINE = 1;
 var NOTEBOOK_IMAGE_RESERVE = 24;
 var NOTEBOOK_MIN_EDITOR_HEIGHT = 300;
+// Obergrenze fuer das Mitwachsen beim Ziehen. Ohne sie kann ein Zug das Feld
+// beliebig lang machen.
+var NOTEBOOK_MAX_EDITOR_HEIGHT = 2400;
 var NOTEBOOK_RESIZE_ZONE = 20;
 var NOTEBOOK_MIN_IMAGE_WIDTH = 60;
 var NOTEBOOK_RESIZE_STEP = 20;
@@ -274,13 +277,25 @@ function notebookInlineImagePointerDown(event) {
   editor.classList.add('is-moving-image');
   try { image.setPointerCapture(event.pointerId); } catch (error) {}
 
+  // Zieht der Zeiger tiefer, als das Feld reicht, waechst das Feld mit. Der
+  // Zuwachs haengt an der Wunschposition des Zeigers, nicht an der Feldhoehe:
+  // sonst schaukeln sich beide auf -- Feld waechst, Bild darf tiefer, Feld
+  // waechst. Der Zeiger begrenzt sich selbst, die Feldhoehe nicht.
+  function growEditorFor(wishedY) {
+    var needed = Math.min(NOTEBOOK_MAX_EDITOR_HEIGHT, wishedY + notebookImageHeight(image) + NOTEBOOK_IMAGE_RESERVE);
+    if (needed <= Math.max(editor.scrollHeight, editor.clientHeight)) return;
+    editor.style.minHeight = needed + 'px';
+    maxTop = notebookMaxImageTop(editor, image);
+  }
+
   function apply() {
     // Die Position gehoert zum Inhalt, der Zeiger meldet Fensterkoordinaten.
     // Darum muss die inzwischen gescrollte Strecke wieder dazugerechnet werden.
     var scrolled = editor.scrollTop - startScroll;
     var nextX = Math.min(maxLeft, Math.max(0, start.x + pointerX - startX));
-    var nextY = Math.min(maxTop, Math.max(0, start.y + (pointerY - startY) + scrolled));
-    notebookSetImagePosition(image, nextX, nextY);
+    var wishedY = Math.max(0, start.y + (pointerY - startY) + scrolled);
+    if (wishedY > maxTop) growEditorFor(wishedY);
+    notebookSetImagePosition(image, nextX, Math.min(maxTop, wishedY));
   }
 
   function autoScroll() {

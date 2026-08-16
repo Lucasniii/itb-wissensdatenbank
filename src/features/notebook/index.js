@@ -4,6 +4,9 @@ var NOTEBOOK_NUDGE_STEP = 10;
 var NOTEBOOK_NUDGE_FINE = 1;
 var NOTEBOOK_IMAGE_RESERVE = 24;
 var NOTEBOOK_MIN_EDITOR_HEIGHT = 300;
+var NOTEBOOK_RESIZE_ZONE = 20;
+var NOTEBOOK_MIN_IMAGE_WIDTH = 60;
+var NOTEBOOK_RESIZE_STEP = 20;
 
 function notebookEditor() {
   return document.getElementById('notebook-content');
@@ -68,6 +71,44 @@ function notebookImageHeight(image) {
   return Math.max((image && image.offsetHeight) || 120, 120);
 }
 
+// Eine eigene Breite hebt die Vorgaben aus dem Stylesheet auf, die Hoehe folgt
+// dem Seitenverhaeltnis. Ohne Breite bleibt es bei den Vorgaben.
+function notebookSetImageWidth(image, width) {
+  if (!image) return;
+  var value = Math.round(Number(width));
+  if (!isFinite(value) || value < NOTEBOOK_MIN_IMAGE_WIDTH) {
+    delete image.dataset.notebookW;
+    image.style.width = '';
+    image.style.height = '';
+    image.style.maxWidth = '';
+    image.style.maxHeight = '';
+    return;
+  }
+  image.dataset.notebookW = String(value);
+  image.style.width = value + 'px';
+  image.style.height = 'auto';
+  image.style.maxWidth = 'none';
+  image.style.maxHeight = 'none';
+}
+
+function notebookImageWidthAttribute(image) {
+  var raw = image && image.dataset.notebookW;
+  if (raw === undefined || raw === null || raw === '') return 0;
+  var value = Number(raw);
+  return isFinite(value) && value >= NOTEBOOK_MIN_IMAGE_WIDTH ? Math.round(value) : 0;
+}
+
+function notebookMaxImageWidth(editor, image) {
+  return Math.max(NOTEBOOK_MIN_IMAGE_WIDTH, editor.clientWidth - notebookImagePosition(image).x - 2);
+}
+
+// Die Ecke unten rechts zieht die Groesse, der Rest verschiebt.
+function notebookInResizeZone(image, event) {
+  var box = image.getBoundingClientRect();
+  return (box.right - event.clientX) <= NOTEBOOK_RESIZE_ZONE
+    && (box.bottom - event.clientY) <= NOTEBOOK_RESIZE_ZONE;
+}
+
 function notebookKeepImageVisible(image) {
   var editor = notebookEditor();
   if (!editor || !image) return;
@@ -92,6 +133,27 @@ function notebookFitRenderedContent(container) {
 
 function notebookFitAllRenderedContent(root) {
   Array.from((root || document).querySelectorAll('.notebook-rendered-content')).forEach(notebookFitRenderedContent);
+  Array.from((root || document).querySelectorAll('.notebook-rendered-content img.notebook-inline-image')).forEach(notebookWatchRenderedImage);
+}
+
+// Wird eine Notiz in einem zugeklappten Bereich gezeichnet, hat ihr Bild noch
+// keine Hoehe und der Container faellt zu klein aus. Beim Aufklappen misst sonst
+// niemand nach, darum meldet sich hier die Groessenaenderung selbst.
+var notebookRenderedImageObserver = typeof ResizeObserver === 'function'
+  ? new ResizeObserver(function(entries) {
+      var containers = [];
+      entries.forEach(function(entry) {
+        var container = entry.target.closest && entry.target.closest('.notebook-rendered-content');
+        if (container && containers.indexOf(container) < 0) containers.push(container);
+      });
+      containers.forEach(notebookFitRenderedContent);
+    })
+  : null;
+
+function notebookWatchRenderedImage(image) {
+  if (!notebookRenderedImageObserver || !image || image.dataset.notebookWatched) return;
+  image.dataset.notebookWatched = '1';
+  notebookRenderedImageObserver.observe(image);
 }
 
 function notebookMaxImageLeft(editor, image) {
@@ -122,6 +184,14 @@ function notebookScrollImageIntoView(image) {
 function notebookBindInlineImageMovement(image) {
   image.addEventListener('pointerdown', notebookInlineImagePointerDown);
   image.addEventListener('keydown', notebookInlineImageKeyDown);
+  image.addEventListener('pointermove', notebookInlineImageHover);
+}
+
+// Zeigt schon vor dem Klick, was die Ecke tut.
+function notebookInlineImageHover(event) {
+  var image = event.currentTarget;
+  if (image.classList.contains('is-dragging') || image.classList.contains('is-resizing')) return;
+  image.style.cursor = notebookInResizeZone(image, event) ? 'nwse-resize' : 'grab';
 }
 
 function notebookInlineImagePointerDown(event) {
@@ -131,6 +201,10 @@ function notebookInlineImagePointerDown(event) {
   if (!editor) return;
   event.preventDefault();
   event.stopPropagation();
+  if (notebookInResizeZone(image, event)) {
+    notebookInlineImageResizeStart(image, editor, event);
+    return;
+  }
 
   var start = notebookImagePosition(image);
   var startX = event.clientX;
@@ -194,10 +268,65 @@ function notebookInlineImagePointerDown(event) {
   image.addEventListener('lostpointercapture', finish);
 }
 
+function notebookInlineImageResizeStart(image, editor, event) {
+  var startWidth = image.offsetWidth;
+  var startX = event.clientX;
+
+  image.classList.add('is-resizing');
+  editor.classList.add('is-moving-image');
+  image.style.cursor = 'nwse-resize';
+  try { image.setPointerCapture(event.pointerId); } catch (error) {}
+
+  function resize(moveEvent) {
+    notebookSetImageWidth(image, Math.min(
+      notebookMaxImageWidth(editor, image),
+      Math.max(NOTEBOOK_MIN_IMAGE_WIDTH, startWidth + moveEvent.clientX - startX)));
+  }
+
+  function finish() {
+    image.classList.remove('is-resizing');
+    editor.classList.remove('is-moving-image');
+    image.style.cursor = '';
+    try { image.releasePointerCapture(event.pointerId); } catch (error) {}
+    image.removeEventListener('pointermove', resize);
+    image.removeEventListener('pointerup', finish);
+    image.removeEventListener('pointercancel', finish);
+    image.removeEventListener('lostpointercapture', finish);
+    notebookClampImageIntoEditor(image, editor);
+    notebookKeepImageVisible(image);
+    image.focus({ preventScroll: true });
+  }
+
+  image.addEventListener('pointermove', resize);
+  image.addEventListener('pointerup', finish);
+  image.addEventListener('pointercancel', finish);
+  image.addEventListener('lostpointercapture', finish);
+}
+
+// Nach einer Groessenaenderung kann das Bild ueber den Rand ragen.
+function notebookClampImageIntoEditor(image, editor) {
+  var position = notebookImagePosition(image);
+  notebookSetImagePosition(image,
+    Math.min(notebookMaxImageLeft(editor, image), position.x),
+    Math.min(notebookMaxImageTop(editor, image), position.y));
+}
+
 function notebookInlineImageKeyDown(event) {
   var image = event.currentTarget;
   var editor = notebookEditor();
   if (!editor) return;
+  if (event.key === '+' || event.key === '-' || event.key === '_' || event.key === '=') {
+    event.preventDefault();
+    event.stopPropagation();
+    var richtung = (event.key === '+' || event.key === '=') ? 1 : -1;
+    notebookSetImageWidth(image, Math.min(
+      notebookMaxImageWidth(editor, image),
+      Math.max(NOTEBOOK_MIN_IMAGE_WIDTH, image.offsetWidth + (richtung * NOTEBOOK_RESIZE_STEP))));
+    notebookClampImageIntoEditor(image, editor);
+    notebookKeepImageVisible(image);
+    notebookScrollImageIntoView(image);
+    return;
+  }
   var step = event.shiftKey ? NOTEBOOK_NUDGE_FINE : NOTEBOOK_NUDGE_STEP;
   var position = notebookImagePosition(image);
   var nextX = position.x;
@@ -235,6 +364,7 @@ function notebookMakeInlineImage(options, editable) {
   if (options.localId) image.dataset.notebookLocalId = options.localId;
   if (options.attachmentId) image.dataset.notebookImageId = options.attachmentId;
   notebookSetImagePosition(image, options.x, options.y);
+  if (options.width) notebookSetImageWidth(image, options.width);
   if (editable) {
     image.addEventListener('load', function() { notebookKeepImageVisible(image); }, { once: true });
     notebookBindInlineImageMovement(image);
@@ -266,7 +396,8 @@ function notebookSafeContentElement(content, entry, editable) {
             url: attachment.preview_url,
             name: attachment.original_name,
             x: node.getAttribute('data-notebook-x'),
-            y: node.getAttribute('data-notebook-y')
+            y: node.getAttribute('data-notebook-y'),
+            width: node.getAttribute('data-notebook-w')
           }, editable));
         } else if (attachmentId) {
           var placeholder = document.createElement('span');
@@ -340,6 +471,8 @@ function notebookSerializeEditorContent() {
         image.setAttribute('alt', String(node.alt || 'Bild in Notiz').slice(0, 160));
         image.setAttribute('data-notebook-x', String(Math.round(notebookCoordinate(node.dataset.notebookX))));
         image.setAttribute('data-notebook-y', String(Math.round(notebookCoordinate(node.dataset.notebookY))));
+        var width = notebookImageWidthAttribute(node);
+        if (width) image.setAttribute('data-notebook-w', String(width));
         target.appendChild(image);
         return;
       }
@@ -659,7 +792,11 @@ document.addEventListener('keydown', function(event) {
 document.addEventListener('load', function(event) {
   var image = event.target;
   if (!image || !image.classList || !image.classList.contains('notebook-inline-image')) return;
-  if (image.closest) notebookFitRenderedContent(image.closest('.notebook-rendered-content'));
+  if (!image.closest) return;
+  var container = image.closest('.notebook-rendered-content');
+  if (!container) return;
+  notebookWatchRenderedImage(image);
+  notebookFitRenderedContent(container);
 }, true);
 
 document.getElementById('notebook-content').addEventListener('dragover', notebookEditorDragOver);

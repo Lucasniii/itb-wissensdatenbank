@@ -416,17 +416,131 @@ function notebookMakeInlineImage(options, editable) {
   return image;
 }
 
+// Formatierung aus OneNote und Word soll erhalten bleiben, ihr Markup aber
+// nicht: die Notiz darf gespeichert nur 3000 Zeichen lang sein. Darum eine enge
+// Auswahl an Elementen, kurze Ersatznamen und keine Klassen oder Fremdattribute.
+var NOTEBOOK_RICH_TAGS = {
+  b: 'b', strong: 'b', i: 'i', em: 'i', u: 'u', s: 's', strike: 's', del: 's',
+  code: 'code', kbd: 'code', mark: 'mark', sub: 'sub', sup: 'sup',
+  ul: 'ul', ol: 'ol', li: 'li', a: 'a', span: 'span', font: 'span',
+  h1: 'h3', h2: 'h3', h3: 'h3', h4: 'h4', h5: 'h4', h6: 'h4'
+};
+
+var NOTEBOOK_DROPPED_TAGS = { script: true, style: true, noscript: true, template: true, iframe: true, object: true, embed: true };
+
+var NOTEBOOK_NAMED_COLORS = {
+  black: '#000000', white: '#ffffff', red: '#ff0000', green: '#008000', blue: '#0000ff',
+  yellow: '#ffff00', orange: '#ffa500', gray: '#808080', grey: '#808080'
+};
+
+function notebookColorValue(value) {
+  var raw = String(value || '').trim().toLowerCase();
+  if (!raw || raw === 'inherit' || raw === 'transparent' || raw === 'initial') return '';
+  if (NOTEBOOK_NAMED_COLORS[raw]) return NOTEBOOK_NAMED_COLORS[raw];
+  var hex = raw.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/);
+  if (hex) return raw.length === 4 ? '#' + raw[1] + raw[1] + raw[2] + raw[2] + raw[3] + raw[3] : raw;
+  var rgb = raw.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/);
+  if (!rgb) return '';
+  return '#' + [rgb[1], rgb[2], rgb[3]].map(function(part) {
+    return ('0' + Math.min(255, parseInt(part, 10)).toString(16)).slice(-2);
+  }).join('');
+}
+
+// Weisser Text auf weissem Grund kommt aus hellen Vorlagen und waere hier
+// unlesbar. Die Notiz steht auf dunklem Untergrund.
+function notebookColorBrightness(color) {
+  var value = color.slice(1);
+  return parseInt(value.slice(0, 2), 16) * 0.299 + parseInt(value.slice(2, 4), 16) * 0.587 + parseInt(value.slice(4, 6), 16) * 0.114;
+}
+
+function notebookReadableColor(color) {
+  if (!color) return '';
+  return notebookColorBrightness(color) < 40 ? '' : color;
+}
+
+// Absaetze und Listen tragen keine bedeutsamen Leerzeichen. Zeilenumbrueche im
+// Quelltext wuerden im Editor sonst als Leerzeilen erscheinen.
+function notebookIsBlockContainer(node) {
+  if (!node || node.nodeType !== Node.ELEMENT_NODE) return true;
+  return ['body', 'div', 'p', 'ul', 'ol', 'table', 'tbody', 'tr'].indexOf(node.tagName.toLowerCase()) >= 0;
+}
+
+function notebookRichStyleOf(node) {
+  var style = node.style || {};
+  var decoration = String(style.textDecoration || style.textDecorationLine || '') + ' ' + String(node.getAttribute('data-decoration') || '');
+  var weight = String(style.fontWeight || '');
+  var tag = node.tagName.toLowerCase();
+  return {
+    color: notebookReadableColor(notebookColorValue(style.color || (tag === 'font' ? node.getAttribute('color') : ''))),
+    background: notebookColorValue(style.backgroundColor || style.background),
+    bold: weight === 'bold' || weight === 'bolder' || parseInt(weight, 10) >= 600,
+    italic: String(style.fontStyle || '') === 'italic',
+    underline: decoration.indexOf('underline') >= 0,
+    strike: decoration.indexOf('line-through') >= 0
+  };
+}
+
+function notebookSafeHref(value) {
+  var raw = String(value || '').trim();
+  // Netzwerkpfade (file:) kann der Browser von einer Webseite aus nicht oeffnen.
+  // Der Pfad bleibt als Text stehen, nur ohne Verweis.
+  return /^(https?:|mailto:)/i.test(raw) ? raw.slice(0, 300) : '';
+}
+
+// Liefert das Ersatzelement fuer einen Knoten: outer kommt in die Ausgabe,
+// inner nimmt die Kinder auf. null heisst: Element weglassen, Kinder behalten.
+function notebookRichElementFor(node) {
+  var tag = NOTEBOOK_RICH_TAGS[node.tagName.toLowerCase()];
+  if (!tag) return null;
+  var style = notebookRichStyleOf(node);
+  var inner = document.createElement(tag);
+  if (tag === 'a') {
+    var href = notebookSafeHref(node.getAttribute('href'));
+    if (href) {
+      inner.setAttribute('href', href);
+      inner.setAttribute('target', '_blank');
+      inner.setAttribute('rel', 'noopener');
+    }
+  }
+  var declarations = [];
+  if (style.color) declarations.push('color:' + style.color);
+  if (style.background) {
+    declarations.push('background:' + style.background);
+    // Heller Grund kommt aus einer hellen Vorlage. Ohne dunkle Schrift steht
+    // hier heller Text auf hellem Grund.
+    if (!style.color && notebookColorBrightness(style.background) > 140) declarations.push('color:#111111');
+  }
+  if (declarations.length) inner.setAttribute('style', declarations.join(';'));
+  var outer = inner;
+  function wrap(name) { var element = document.createElement(name); element.appendChild(outer); outer = element; }
+  if (style.strike && tag !== 's') wrap('s');
+  if (style.underline && tag !== 'u' && tag !== 'a') wrap('u');
+  if (style.italic && tag !== 'i') wrap('i');
+  if (style.bold && tag !== 'b') wrap('b');
+  // Ein span ohne Wirkung kostet nur Zeichen.
+  if (tag === 'span' && outer === inner && !inner.hasAttribute('style')) return null;
+  return { outer: outer, inner: inner };
+}
+
+function notebookRichElementIsEmpty(element) {
+  return !element.firstChild && !element.textContent.trim();
+}
+
 function notebookSafeContentElement(content, entry, editable) {
   var result = document.createElement('div');
   var source = new DOMParser().parseFromString(String(content || ''), 'text/html');
   function appendNodes(nodes, target) {
     Array.from(nodes || []).forEach(function(node) {
       if (node.nodeType === Node.TEXT_NODE) {
-        target.appendChild(document.createTextNode(node.nodeValue || ''));
+        var value = String(node.nodeValue || '').replace(/[\r\n\t]+/g, ' ');
+        if (!value.trim() && notebookIsBlockContainer(node.parentNode)) return;
+        target.appendChild(document.createTextNode(value));
         return;
       }
       if (node.nodeType !== Node.ELEMENT_NODE) return;
       var tag = node.tagName.toLowerCase();
+      // Sonst landet der Inhalt dieser Elemente als Text in der Notiz.
+      if (NOTEBOOK_DROPPED_TAGS[tag]) return;
       if (tag === 'br') {
         target.appendChild(document.createElement('br'));
         return;
@@ -454,7 +568,15 @@ function notebookSafeContentElement(content, entry, editable) {
       if (tag === 'div' || tag === 'p') {
         var block = document.createElement('div');
         appendNodes(node.childNodes, block);
+        // Eine Leerzeile aus der Vorlage hat ohne Inhalt keine Hoehe.
+        if (!block.firstChild) block.appendChild(document.createElement('br'));
         target.appendChild(block);
+        return;
+      }
+      var rich = notebookRichElementFor(node);
+      if (rich) {
+        appendNodes(node.childNodes, rich.inner);
+        if (!notebookRichElementIsEmpty(rich.inner)) target.appendChild(rich.outer);
         return;
       }
       appendNodes(node.childNodes, target);
@@ -471,6 +593,87 @@ function notebookSetEditorContent(content, entry) {
   editor.innerHTML = '';
   var safe = notebookSafeContentElement(content, entry, true);
   while (safe.firstChild) editor.appendChild(safe.firstChild);
+  notebookUpdateLengthHint();
+}
+
+// Formatierung aus OneNote kommt als HTML in der Zwischenablage. Der Browser
+// wuerde das komplette Fremdmarkup einsetzen; hier laeuft es durch dieselbe
+// Auswahl wie eine gespeicherte Notiz.
+// Ein Screenshot aus Windows oder macOS liegt als Bilddatei in der
+// Zwischenablage, nicht als Text.
+function notebookClipboardImageFiles(data) {
+  var files = Array.from(data.files || []);
+  if (!files.length && data.items) {
+    files = Array.from(data.items).filter(function(item) { return item.kind === 'file'; })
+      .map(function(item) { return item.getAsFile(); }).filter(Boolean);
+  }
+  return files.filter(function(file) { return String(file.type || '').indexOf('image/') === 0; })
+    .map(notebookNamedImageFile);
+}
+
+// Aus der Zwischenablage kommt ein Bild oft ohne Dateinamen. Ablagepfad und
+// Anzeige brauchen aber einen.
+function notebookNamedImageFile(file) {
+  if (file.name && /\.[a-z0-9]+$/i.test(file.name)) return file;
+  var extension = String(file.type || '').split('/')[1] || 'png';
+  var name = 'screenshot-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.' + extension.replace(/[^a-z0-9]/gi, '');
+  try { return new File([file], name, { type: file.type || 'image/png' }); } catch (error) { return file; }
+}
+
+function notebookHandlePaste(event) {
+  var data = event.clipboardData;
+  if (!data) return;
+  var images = notebookClipboardImageFiles(data);
+  if (images.length) {
+    event.preventDefault();
+    notebookInsertInlineFiles(images);
+    notebookUpdateLengthHint();
+    return;
+  }
+  var html = data.getData('text/html');
+  var text = data.getData('text/plain');
+  if (!html && !text) return;
+  event.preventDefault();
+  var fragment = document.createDocumentFragment();
+  if (html) {
+    var safe = notebookSafeContentElement(html, null, false);
+    while (safe.firstChild) fragment.appendChild(safe.firstChild);
+  } else {
+    String(text).split(/\r?\n/).forEach(function(line, index) {
+      if (index) fragment.appendChild(document.createElement('br'));
+      fragment.appendChild(document.createTextNode(line));
+    });
+  }
+  notebookInsertFragmentAtCaret(fragment);
+}
+
+function notebookInsertFragmentAtCaret(fragment) {
+  var editor = notebookEditor();
+  if (!editor || !fragment.firstChild) return;
+  var last = fragment.lastChild;
+  var selection = window.getSelection();
+  if (selection && selection.rangeCount && editor.contains(selection.anchorNode)) {
+    var range = selection.getRangeAt(0);
+    range.deleteContents();
+    range.insertNode(fragment);
+    range.setStartAfter(last);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  } else {
+    editor.appendChild(fragment);
+  }
+  notebookUpdateLengthHint();
+}
+
+// Formatierung zaehlt beim Speichern mit. Ohne Anzeige merkt man erst beim
+// Speichern, dass die 3000 Zeichen voll sind.
+function notebookUpdateLengthHint() {
+  var hint = document.getElementById('notebook-length');
+  if (!hint) return;
+  var length = notebookSerializeEditorContent().length;
+  hint.textContent = length + ' / 3000 Zeichen';
+  hint.classList.toggle('error', length > 3000);
 }
 
 function notebookInlineAttachmentIds(entry) {
@@ -524,6 +727,12 @@ function notebookSerializeEditorContent() {
         var block = document.createElement('div');
         copyNodes(node.childNodes, block);
         target.appendChild(block);
+        return;
+      }
+      var rich = notebookRichElementFor(node);
+      if (rich) {
+        copyNodes(node.childNodes, rich.inner);
+        if (!notebookRichElementIsEmpty(rich.inner)) target.appendChild(rich.outer);
         return;
       }
       copyNodes(node.childNodes, target);
@@ -831,6 +1040,8 @@ async function notebookSave() {
 // Event bindings live with the Notebook feature so this area can evolve independently.
 document.getElementById('notebook-form').addEventListener('submit', async function(event) { event.preventDefault(); await notebookSave(); });
 document.getElementById('notebook-inline-images').addEventListener('change', notebookHandleInlineImageSelection);
+notebookEditor().addEventListener('paste', notebookHandlePaste);
+notebookEditor().addEventListener('input', notebookUpdateLengthHint);
 // Gerenderte Notizen entstehen ueber innerHTML, dabei gehen Listener an den
 // Bildern verloren. Klick und Tastatur laufen darum ueber das Dokument. Das gilt
 // auch fuer Notizen, die die Wissensdatenbank zeichnet.

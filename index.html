@@ -419,6 +419,17 @@
       <input type="search" id="kb-search" class="admin-input" placeholder="Wissen durchsuchen …" oninput="kbRenderSearch()">
       <div id="kb-search-results" class="kb-search-results"></div>
     </section>
+    <section class="admin-panel kb-wissen-library" data-admin-only style="margin-top:20px">
+      <h2>Bibliothek <span id="kb-wissen-library-count" class="admin-badge">0</span></h2>
+      <p class="admin-intro">Freigegebene Eintraege bearbeiten. Text und Bilder im Editor, Anhaenge direkt.</p>
+      <div class="kb-admin-library-tools">
+        <input id="kb-wissen-library-search" class="admin-input" type="search" placeholder="Bibliothek durchsuchen …" oninput="kbWissenLibraryRender()">
+        <select id="kb-wissen-library-category" class="admin-select" onchange="kbWissenLibraryRender()">
+          <option value="">Alle Kategorien</option>
+        </select>
+      </div>
+      <div id="kb-wissen-library-list" class="kb-library-list"></div>
+    </section>
     <section class="admin-panel" style="margin-top:20px">
       <h2>Neuer Eintrag</h2>
       <details class="knowledge-contribute">

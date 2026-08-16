@@ -2,8 +2,16 @@ var FROZEN_THRESHOLD = 20;
 var NOTEBOOK_ENTRY_MARKER = '__itb_notebook__';
 var NOTEBOOK_CATEGORIES = ['Anschlusspläne', 'Sonderfunktionen', 'Befehle', 'Hardware / Einbau', 'Fehlerbehebung', 'Kundenspezifisch'];
 
+// Gehoert der Eintrag ins Notizbuch? Entscheidet ueber die Liste "Meine Notizen".
 function isNotebookEntry(entry) {
   return !!entry && (entry.command === NOTEBOOK_ENTRY_MARKER || entry.category === 'Notizen');
+}
+
+// Traegt der Inhalt platzierte Bilder? Entscheidet nur, wie gezeichnet wird.
+// Ein bearbeiteter Wissenseintrag bekommt dadurch seine Bilder zu sehen, ohne
+// deshalb im Notizbuch aufzutauchen.
+function kbEntryHasPlacedImages(entry) {
+  return !!entry && /data-notebook-image-id=/.test(String(entry.content || ''));
 }
 
 /* ════════════════════════════════════════════════════════════════

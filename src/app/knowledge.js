@@ -266,14 +266,17 @@ function remoteEntryHtml(entry, options) {
   var aiBadge = typeof entry.ai_similarity === 'number' ? '<span class="admin-badge">KI-Treffer</span>' : '';
   if (options.admin) {
     actions = '<span class="admin-feature-actions">' +
-      '<button class="admin-mini-btn" type="button" onclick="kbAdminEdit(\'' + entry.id + '\')">Bearbeiten</button>' +
+      // In der Wissensdatenbank-Bibliothek gibt es eigene Bearbeiten-Knoepfe.
+      // Der Sprung ins Admin-Formular waere dort nur verwirrend.
+      (options.hideEdit ? '' : '<button class="admin-mini-btn" type="button" onclick="kbAdminEdit(\'' + entry.id + '\')">Bearbeiten</button>') +
       (entry.status === 'draft' ? '<button class="admin-mini-btn" type="button" onclick="publishRemoteEntry(\'' + entry.id + '\')">Freigeben</button>' : '') +
       '<button class="admin-mini-btn delete" type="button" onclick="kbAdminDelete(\'' + entry.id + '\')">Löschen</button>' +
     '</span>';
   }
   var date = remoteEntryDate(entry);
-  var inlineAttachmentIds = isNotebookEntry(entry) ? notebookInlineAttachmentIds(entry) : null;
-  var contentHtml = isNotebookEntry(entry) ? notebookStoredContentHtml(entry) : zcEsc(entry.content);
+  var richContent = isNotebookEntry(entry) || kbEntryHasPlacedImages(entry);
+  var inlineAttachmentIds = richContent ? notebookInlineAttachmentIds(entry) : null;
+  var contentHtml = richContent ? notebookStoredContentHtml(entry) : zcEsc(entry.content);
   var imageEditable = !!(currentProfile && currentProfile.role === 'admin');
   return '<article class="admin-feature kb-card">' +
     '<div class="admin-feature-head"><span class="admin-badge">' + zcEsc(entry.category) + '</span>' + remoteEntryStatus(entry) + aiBadge + actions + '</div>' +
@@ -281,7 +284,7 @@ function remoteEntryHtml(entry, options) {
       '<div class="kb-card-title">' + zcEsc(entry.title) + '</div>' +
       (date ? '<div class="kb-card-meta">' + (entry.status === 'draft' ? 'Eingereicht ' : 'Aktualisiert ') + zcEsc(date) + '</div>' : '') +
       (entry.command && !isNotebookEntry(entry) ? '<div class="admin-feature-notes">Befehl: ' + zcEsc(entry.command) + '</div>' : '') +
-      '<div class="' + (isNotebookEntry(entry) ? 'notebook-rendered-content' : 'admin-feature-notes') + '"' + (isNotebookEntry(entry) ? '' : ' style="white-space:pre-wrap"') + '>' + contentHtml + '</div>' +
+      '<div class="' + (richContent ? 'notebook-rendered-content' : 'admin-feature-notes') + '"' + (richContent ? '' : ' style="white-space:pre-wrap"') + '>' + contentHtml + '</div>' +
       remoteImageGalleryHtml(entry, options.editable, inlineAttachmentIds, imageEditable) +
       remoteAttachmentHtml(entry, options.editable) +
     '</div>' +
@@ -318,6 +321,7 @@ async function loadRemoteKnowledge() {
   await hydrateRemoteImagePreviews(remoteKnowledgeEntries);
   kbAdminRender();
   kbLibraryRender();
+  kbWissenLibraryRender();
   kbRenderSearch();
   renderTechDrafts();
   if (typeof notebookRender === 'function') notebookRender();
@@ -1259,6 +1263,80 @@ function kbLibraryRender() {
   list.innerHTML = entries.length
     ? entries.map(kbLibraryEntryHtml).join('')
     : '<div class="kb-inbox-empty">Keine Einträge für diese Auswahl gefunden.</div>';
+}
+
+// Bibliothek in der Wissensdatenbank: nur freigegebene Eintraege, mit beiden
+// Wegen zum Bearbeiten. Die Bibliothek im Admin-Tab bleibt davon unberuehrt.
+function kbWissenLibraryEntryHtml(entry) {
+  var attachments = entry.knowledge_attachments || [];
+  var date = remoteEntryDate(entry);
+  var meta = [entry.category, date, attachments.length ? attachments.length + ' Anhang' + (attachments.length === 1 ? '' : 'e') : '']
+    .filter(Boolean).map(zcEsc).join(' · ');
+  return '<details class="kb-library-entry">' +
+    '<summary>' +
+      '<span class="kb-library-entry-main">' +
+        '<span class="kb-library-entry-title">' + zcEsc(entry.title) + '</span>' +
+        '<span class="kb-library-entry-meta">' + meta + '</span>' +
+      '</span>' +
+      remoteEntryStatus(entry) +
+    '</summary>' +
+    '<div class="kb-library-entry-content">' +
+      '<div class="kb-wissen-library-actions">' +
+        '<button class="admin-btn primary" type="button" onclick="kbWissenLibraryEdit(\'' + entry.id + '\')">Text und Bilder bearbeiten</button>' +
+        kbWissenLibraryAttachmentButtons(attachments) +
+      '</div>' +
+      remoteEntryHtml(entry, { admin: true, editable: true, hideEdit: true }) +
+    '</div>' +
+  '</details>';
+}
+
+function kbWissenLibraryEdit(id) {
+  if (!currentProfile || currentProfile.role !== 'admin') return;
+  var entry = (remoteKnowledgeEntries || []).find(function(item) { return item.id === id; });
+  if (!entry) return;
+  notebookLoadIntoEditor(entry);
+}
+
+function kbWissenLibraryAttachmentButtons(attachments) {
+  return attachments.map(function(file) {
+    var isImage = remoteImageAttachment(file);
+    var opener = isImage ? 'kbOpenDirectImageEditor' : (file.mime_type === 'application/pdf' ? 'kbOpenDirectPdfEditor' : '');
+    if (!opener) return '';
+    return '<button class="admin-mini-btn" type="button" onclick="' + opener + '(\'' + file.id + '\')">' +
+      (isImage ? 'Bild' : 'PDF') + ' direkt bearbeiten: ' + zcEsc(file.original_name) + '</button>';
+  }).join('');
+}
+
+function kbWissenLibraryRender() {
+  var list = document.getElementById('kb-wissen-library-list');
+  var count = document.getElementById('kb-wissen-library-count');
+  var search = document.getElementById('kb-wissen-library-search');
+  var category = document.getElementById('kb-wissen-library-category');
+  if (!list || !count || !search || !category) return;
+  if (!currentProfile || currentProfile.role !== 'admin') {
+    count.textContent = '0';
+    list.innerHTML = '<div class="kb-inbox-empty">Admin-Anmeldung erforderlich.</div>';
+    return;
+  }
+  var published = remoteKnowledgeEntries.filter(function(entry) { return entry.status === 'published'; });
+  var selectedCategory = category.value;
+  var categories = published.map(function(entry) { return entry.category || ''; })
+    .filter(Boolean)
+    .filter(function(value, index, values) { return values.indexOf(value) === index; })
+    .sort(function(a, b) { return a.localeCompare(b, 'de'); });
+  category.innerHTML = '<option value="">Alle Kategorien</option>' + categories.map(function(value) {
+    return '<option value="' + zcEsc(value) + '">' + zcEsc(value) + '</option>';
+  }).join('');
+  category.value = categories.indexOf(selectedCategory) >= 0 ? selectedCategory : '';
+  var query = search.value.trim().toLowerCase();
+  var entries = published.filter(function(entry) {
+    return (!category.value || entry.category === category.value) && kbLibraryEntryMatches(entry, query);
+  });
+  count.textContent = entries.length;
+  list.innerHTML = entries.length
+    ? entries.map(kbWissenLibraryEntryHtml).join('')
+    : '<div class="kb-inbox-empty">Keine freigegebenen Eintraege fuer diese Auswahl gefunden.</div>';
+  notebookFitAllRenderedContent(list);
 }
 
 function kbRenderSearch() {

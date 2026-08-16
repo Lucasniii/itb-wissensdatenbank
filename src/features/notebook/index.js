@@ -642,6 +642,8 @@ function notebookResetForm() {
   if (!form) return;
   form.reset();
   form.removeAttribute('data-kb-id');
+  form.removeAttribute('data-kb-command');
+  form.removeAttribute('data-kb-notebook');
   document.getElementById('notebook-category').value = NOTEBOOK_CATEGORIES[0];
   notebookSetEditorContent('', null);
   document.getElementById('notebook-file-preview').innerHTML = '';
@@ -676,10 +678,23 @@ function notebookRender() {
 function notebookEdit(id) {
   var entry = (remoteKnowledgeEntries || []).find(function(item) { return item.id === id && isNotebookEntry(item); });
   if (!entry) return;
+  notebookLoadIntoEditor(entry);
+}
+
+// Auch Wissenseintraege koennen hier bearbeitet werden. Ihr Befehl-Feld darf
+// dabei nicht verlorengehen, denn die Notizbuch-Markierung wohnt im selben Feld.
+function notebookLoadIntoEditor(entry) {
   var form = document.getElementById('notebook-form');
   form.setAttribute('data-kb-id', entry.id);
+  form.setAttribute('data-kb-command', entry.command || '');
+  form.setAttribute('data-kb-notebook', isNotebookEntry(entry) ? 'true' : 'false');
   document.getElementById('notebook-title').value = entry.title;
-  document.getElementById('notebook-category').value = NOTEBOOK_CATEGORIES.indexOf(entry.category) >= 0 ? entry.category : NOTEBOOK_CATEGORIES[0];
+  var select = document.getElementById('notebook-category');
+  if (NOTEBOOK_CATEGORIES.indexOf(entry.category) < 0 && entry.category) {
+    // Fremde Kategorie erhalten, statt sie still auf die erste zu aendern.
+    select.insertAdjacentHTML('beforeend', '<option value="' + zcEsc(entry.category) + '">' + zcEsc(entry.category) + '</option>');
+  }
+  select.value = entry.category || NOTEBOOK_CATEGORIES[0];
   notebookSetEditorContent(entry.content || '', entry);
   document.getElementById('notebook-files').value = '';
   document.getElementById('notebook-file-preview').innerHTML = '';
@@ -693,11 +708,16 @@ async function notebookSave() {
   if (!supabaseClient || !currentProfile || currentProfile.role !== 'admin') return;
   var form = document.getElementById('notebook-form');
   var id = form.getAttribute('data-kb-id');
+  // Die Notizbuch-Markierung wohnt im Befehl-Feld. Ein Wissenseintrag, der hier
+  // nur bearbeitet wird, behaelt darum seinen Befehl und wandert nicht ins
+  // Notizbuch. Nur echte Notizen bekommen die Markierung.
+  var istWissenseintrag = form.getAttribute('data-kb-notebook') === 'false';
+  var vorhandenerBefehl = form.getAttribute('data-kb-command') || '';
   var payload = {
     category: document.getElementById('notebook-category').value.trim(),
     title: document.getElementById('notebook-title').value.trim(),
     content: notebookSerializeEditorContent(),
-    command: NOTEBOOK_ENTRY_MARKER
+    command: istWissenseintrag ? vorhandenerBefehl : (vorhandenerBefehl || NOTEBOOK_ENTRY_MARKER)
   };
   if (!payload.category || !payload.title) return;
   if (payload.content.length > 3000) {
@@ -739,7 +759,7 @@ async function notebookSave() {
     var storedContent = notebookSerializeEditorContent();
     if (storedContent.length > 3000) throw new Error('Die Notiz ist nach dem Einfügen der Bilder zu lang.');
     if (storedContent !== payload.content) {
-      var contentUpdate = await supabaseClient.from('knowledge_entries').update({ content: storedContent, command: NOTEBOOK_ENTRY_MARKER }).eq('id', response.data.id);
+      var contentUpdate = await supabaseClient.from('knowledge_entries').update({ content: storedContent, command: payload.command }).eq('id', response.data.id);
       if (contentUpdate.error) throw contentUpdate.error;
     }
     if (response.data.status === 'published') await indexRemoteKnowledgeEntry(response.data.id);

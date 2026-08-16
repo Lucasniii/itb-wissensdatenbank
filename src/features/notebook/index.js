@@ -1073,6 +1073,7 @@ function notebookResetForm() {
   form.removeAttribute('data-kb-command');
   form.removeAttribute('data-kb-notebook');
   document.getElementById('notebook-category').value = NOTEBOOK_CATEGORIES[0];
+  notebookShowCommandField(false, '');
   notebookSetEditorContent('', null);
   notebookSetStatus('', '');
   notebookSetEditState(null);
@@ -1115,6 +1116,14 @@ function notebookEdit(id) {
 // dabei nicht verlorengehen, denn die Notizbuch-Markierung wohnt im selben Feld.
 // options.keepView laesst die aktuelle Ansicht stehen. Die Bibliothek holt sich
 // das Formular in ihren Eintrag und will nicht ins Notizbuch springen.
+function notebookShowCommandField(visible, value) {
+  var field = document.getElementById('notebook-command-field');
+  var input = document.getElementById('notebook-command');
+  if (!field || !input) return;
+  field.hidden = !visible;
+  input.value = visible ? String(value || '') : '';
+}
+
 function notebookLoadIntoEditor(entry, options) {
   options = options || {};
   var form = document.getElementById('notebook-form');
@@ -1128,6 +1137,10 @@ function notebookLoadIntoEditor(entry, options) {
     select.insertAdjacentHTML('beforeend', '<option value="' + zcEsc(entry.category) + '">' + zcEsc(entry.category) + '</option>');
   }
   select.value = entry.category || NOTEBOOK_CATEGORIES[0];
+  // Das Befehl-Feld gilt nur fuer Wissenseintraege. Bei einer Notiz steht in
+  // diesem Feld die Notizbuch-Markierung -- sichtbar waere sie ein Fehler, den
+  // man mit einem Tastendruck in den Eintrag schreibt.
+  notebookShowCommandField(!isNotebookEntry(entry), entry.command || '');
   notebookSetEditorContent(entry.content || '', entry);
   notebookSetEditState(entry);
   notebookSetStatus('', '');
@@ -1144,11 +1157,15 @@ async function notebookSave() {
   // Notizbuch. Nur echte Notizen bekommen die Markierung.
   var istWissenseintrag = form.getAttribute('data-kb-notebook') === 'false';
   var vorhandenerBefehl = form.getAttribute('data-kb-command') || '';
+  var befehlFeld = document.getElementById('notebook-command');
+  // Sichtbar ist das Feld nur bei Wissenseintraegen; sonst bleibt der
+  // gespeicherte Wert unangetastet.
+  var befehl = istWissenseintrag && befehlFeld ? befehlFeld.value.trim() : vorhandenerBefehl;
   var payload = {
     category: document.getElementById('notebook-category').value.trim(),
     title: document.getElementById('notebook-title').value.trim(),
     content: notebookSerializeEditorContent(),
-    command: istWissenseintrag ? vorhandenerBefehl : (vorhandenerBefehl || NOTEBOOK_ENTRY_MARKER)
+    command: istWissenseintrag ? (befehl || null) : (vorhandenerBefehl || NOTEBOOK_ENTRY_MARKER)
   };
   if (!payload.category || !payload.title) return;
   if (payload.content.length > 3000) {

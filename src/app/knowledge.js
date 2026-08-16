@@ -290,11 +290,8 @@ function remoteEntryHtml(entry, options) {
   var actions = '';
   var aiBadge = typeof entry.ai_similarity === 'number' ? '<span class="admin-badge">KI-Treffer</span>' : '';
   if (options.admin) {
+    // Bearbeitet und freigegeben wird oben im Eintrag der Bibliothek.
     actions = '<span class="admin-feature-actions">' +
-      // In der Wissensdatenbank-Bibliothek gibt es eigene Bearbeiten-Knoepfe.
-      // Der Sprung ins Admin-Formular waere dort nur verwirrend.
-      (options.hideEdit ? '' : '<button class="admin-mini-btn" type="button" onclick="kbAdminEdit(\'' + entry.id + '\')">Bearbeiten</button>') +
-      (entry.status === 'draft' ? '<button class="admin-mini-btn" type="button" onclick="publishRemoteEntry(\'' + entry.id + '\')">Freigeben</button>' : '') +
       '<button class="admin-mini-btn delete" type="button" onclick="kbAdminDelete(\'' + entry.id + '\')">Löschen</button>' +
     '</span>';
   }
@@ -344,7 +341,6 @@ async function loadRemoteKnowledge() {
   }
   remoteKnowledgeEntries = response.data || [];
   await hydrateRemoteImagePreviews(remoteKnowledgeEntries);
-  kbAdminRender();
   kbLibraryRender();
   kbRenderSearch();
   renderTechDrafts();
@@ -976,6 +972,9 @@ async function kbAdminImportHtmlPackage() {
     }
     var chunkCount = 0;
     if (converted.chunks.length) chunkCount = await kbStorePdfSearchChunks(created.data.id, attachment, converted.chunks);
+    // Wie beim Hochladen: die PDF steht danach im Text und laesst sich dort
+    // verschieben und oeffnen.
+    await kbPlaceUploadsInContent(created.data.id, '', [{ attachment: attachment, isPdf: true }]);
     await loadRemoteKnowledge();
     input.value = '';
     kbAdminHtmlImportPackage = null;
@@ -1040,6 +1039,8 @@ async function kbAdminImportPdfs() {
         var attachments = await uploadRemoteAttachments(created.data.id, [file]);
         if (!attachments.length || !attachments[0].isPdf) throw new Error('Die PDF konnte nicht als Anhang gespeichert werden.');
         storedChunks += await kbStorePdfSearchChunks(created.data.id, attachments[0].attachment, chunks);
+        // Wie beim Hochladen: die PDF steht danach im Text des Entwurfs.
+        await kbPlaceUploadsInContent(created.data.id, '', attachments);
         importedTitles[titleKey] = true;
         imported += 1;
       } catch (error) {
@@ -1093,109 +1094,11 @@ async function submitTechnicianEntry() {
   await loadRemoteKnowledge();
 }
 
-async function kbAdminSubmitRemote() {
-  if (!currentProfile || currentProfile.role !== 'admin') return;
-  var form = document.getElementById('kb-admin-form');
-  var id = form.getAttribute('data-kb-id');
-  var payload = {
-    category: document.getElementById('kb-admin-category').value.trim(), title: document.getElementById('kb-admin-title').value.trim(),
-    command: document.getElementById('kb-admin-command').value.trim() || null, content: document.getElementById('kb-admin-content').value.trim()
-  };
-  if (form.dataset.notebookEntry === 'true') payload.command = NOTEBOOK_ENTRY_MARKER;
-  if (!payload.category || !payload.title) return;
-  var duplicateTitle = kbRemoteEntryWithTitle(payload.title, id);
-  if (duplicateTitle) {
-    var duplicateTitleMessage = kbDuplicateTitleError(payload.title, duplicateTitle);
-    kbSetPdfTemplateHint(duplicateTitleMessage, 'error');
-    alert(duplicateTitleMessage);
-    return;
-  }
-  // Hochgeladen wird in der Bibliothek, das Formular hat kein Dateifeld mehr.
-  var pdfInput = document.getElementById('kb-admin-pdfs');
-  var files = Array.from(pdfInput && pdfInput.files || []);
-  var replacementInput = document.getElementById('kb-admin-replace-pdf');
-  var replacementAttachmentId = replacementInput && replacementInput.dataset.attachmentId || '';
-  var replacementFile = replacementInput && replacementInput.files && replacementInput.files[0];
-  if (replacementFile && (!id || !replacementAttachmentId)) {
-    kbSetPdfTemplateHint('Bitte wähle die zu ersetzende PDF erneut aus.', 'error');
-    return;
-  }
-  try {
-    await kbPreparePdfFiles(replacementFile ? files.concat([replacementFile]) : files, kbRemotePdfReferences(replacementAttachmentId || undefined));
-  } catch (err) {
-    kbSetPdfTemplateHint(err.message, 'error');
-    alert('PDF konnte nicht gespeichert werden: ' + err.message);
-    return;
-  }
-  var response;
-  if (id) {
-    response = await supabaseClient.from('knowledge_entries').update(payload).eq('id', id).select().maybeSingle();
-    if (!response.error && !response.data) {
-      form.removeAttribute('data-kb-id');
-      kbSetAdminEditState(null);
-      await loadRemoteKnowledge();
-      var staleEntryMessage = 'Dieser Eintrag wurde bereits gelöscht oder ist nicht mehr verfügbar. Deine Eingaben bleiben im Formular erhalten – klicke nochmals auf „Wissen speichern“, um ihn neu anzulegen.';
-      kbSetPdfTemplateHint(staleEntryMessage, 'error');
-      alert(staleEntryMessage);
-      return;
-    }
-  } else {
-    payload.status = 'published';
-    payload.submitted_by = currentSession.user.id;
-    payload.reviewed_by = currentSession.user.id;
-    payload.reviewed_at = new Date().toISOString();
-    response = await supabaseClient.from('knowledge_entries').insert(payload).select().single();
-  }
-  if (response.error) {
-    alert(response.error.code === '23505'
-      ? 'Speichern nicht möglich: Dieser Titel ist bereits in der Wissensdatenbank vorhanden.'
-      : 'Speichern fehlgeschlagen: ' + response.error.message);
-    return;
-  }
-  try {
-    var previousEntry = id && remoteKnowledgeEntries.find(function(entry) { return entry.id === id; });
-    var entryForAttachments = Object.assign({}, previousEntry || {}, response.data);
-    if (previousEntry) entryForAttachments.knowledge_attachments = previousEntry.knowledge_attachments || [];
-    var uploadedAttachments = await uploadRemoteAttachments(response.data.id, files);
-    var placementNote = await kbPlaceUploadsInContent(response.data.id, payload.content, uploadedAttachments);
-    if (placementNote === 'zu lang') kbSetPdfTemplateHint('Die Datei hängt am Eintrag. Für die Platzierung im Text war kein Platz mehr (3.000 Zeichen).', 'error');
-    var indexedChunks = 0;
-    for (var attachmentIndex = 0; attachmentIndex < uploadedAttachments.length; attachmentIndex++) {
-      var uploaded = uploadedAttachments[attachmentIndex];
-      if (uploaded.isPdf) indexedChunks += await kbStoreOrIndexRemotePdf(entryForAttachments, uploaded.attachment, uploaded.file);
-    }
-    if (replacementFile) indexedChunks += await kbReplaceRemotePdf(entryForAttachments, replacementAttachmentId, replacementFile);
-    if (indexedChunks) kbSetPdfTemplateHint(entryForAttachments.status === 'published'
-      ? 'PDF für die KI-Suche indexiert: ' + indexedChunks + ' Textabschnitte.'
-      : 'PDF für die spätere Freigabe vorbereitet: ' + indexedChunks + ' Textabschnitte.', 'success');
-  } catch (err) {
-    kbSetPdfTemplateHint('PDF wurde gespeichert, konnte aber nicht vollständig indexiert werden: ' + err.message, 'error');
-    alert('Eintrag gespeichert, Anhang oder PDF-Index fehlgeschlagen: ' + err.message);
-  }
-  if (response.data.status === 'published' && !await indexRemoteKnowledgeEntry(response.data.id)) {
-    alert('Eintrag gespeichert. Der KI-Suchindex konnte noch nicht aktualisiert werden. Bitte prüfe die KI-Konfiguration im Admin-Bereich.');
-  }
-  kbAdminResetForm();
-  await loadRemoteKnowledge();
-}
-
-async function kbAdminEdit(id) {
-  var entry = remoteKnowledgeEntries.find(function(item) { return item.id === id; });
-  if (!entry) return;
-  var form = document.getElementById('kb-admin-form');
-  form.setAttribute('data-kb-id', entry.id);
-  if (isNotebookEntry(entry)) form.dataset.notebookEntry = 'true';
-  else delete form.dataset.notebookEntry;
-  document.getElementById('kb-admin-category').value = entry.category;
-  document.getElementById('kb-admin-title').value = entry.title;
-  document.getElementById('kb-admin-command').value = isNotebookEntry(entry) ? '' : (entry.command || '');
-  document.getElementById('kb-admin-content').value = entry.content;
-  kbSetAdminEditState(entry);
-  // Das Formular liegt im Unterreiter Freigaben & Upload. Aus der Bibliothek
-  // heraus muss der Reiter darum mitwechseln, sonst scrollt es ins Verborgene.
-  if (typeof showAdminSubview === 'function') showAdminSubview('freigaben');
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  document.getElementById('kb-admin-title').focus();
+// Bearbeitet wird im Editor der Bibliothek. Welcher Eintrag dort gerade offen
+// ist, steht am Formular.
+function kbEditingEntryId() {
+  var form = document.getElementById('notebook-form');
+  return form ? form.getAttribute('data-kb-id') || '' : '';
 }
 
 async function publishRemoteEntry(id) {
@@ -1213,14 +1116,15 @@ async function publishRemoteEntry(id) {
 
 async function kbAdminDelete(id) {
   if (!confirm('Wissenseintrag wirklich löschen?')) return;
-  var editingId = document.getElementById('kb-admin-form').getAttribute('data-kb-id');
+  var editingId = kbEditingEntryId();
   var entry = remoteKnowledgeEntries.find(function(item) { return item.id === id; });
   if (entry) {
     for (var i = 0; i < (entry.knowledge_attachments || []).length; i++) await supabaseClient.storage.from('knowledge-files').remove(kbRemoteAttachmentStoragePaths(entry.knowledge_attachments[i]));
   }
   var response = await supabaseClient.from('knowledge_entries').delete().eq('id', id);
   if (response.error) { alert('Löschen fehlgeschlagen: ' + response.error.message); return; }
-  if (editingId === id) kbAdminResetForm();
+  // Der geloeschte Eintrag darf nicht im offenen Editor stehen bleiben.
+  if (editingId === id && typeof notebookResetForm === 'function') notebookResetForm();
   await loadRemoteKnowledge();
 }
 
@@ -1228,15 +1132,10 @@ async function deleteRemoteAttachment(entryId, attachmentId) {
   var entry = remoteKnowledgeEntries.find(function(item) { return item.id === entryId; });
   var attachment = entry && (entry.knowledge_attachments || []).find(function(item) { return item.id === attachmentId; });
   if (!attachment || !confirm('Anhang wirklich entfernen?')) return;
-  var editingId = document.getElementById('kb-admin-form').getAttribute('data-kb-id');
   await supabaseClient.storage.from('knowledge-files').remove(kbRemoteAttachmentStoragePaths(attachment));
   var response = await supabaseClient.from('knowledge_attachments').delete().eq('id', attachmentId);
   if (response.error) { alert('Anhang konnte nicht entfernt werden: ' + response.error.message); return; }
   await loadRemoteKnowledge();
-  if (editingId === entryId) {
-    var refreshedEntry = remoteKnowledgeEntries.find(function(item) { return item.id === entryId; });
-    if (refreshedEntry) kbSetAdminEditState(refreshedEntry);
-  }
 }
 
 function kbRemoteAttachmentById(id) {
@@ -1369,26 +1268,6 @@ async function downloadRemoteAttachment(id) {
   }
 }
 
-function kbAdminRender() {
-  var list = document.getElementById('kb-admin-list');
-  // Das Zaehler-Badge ist optional, die Liste wird auch ohne gezeichnet.
-  var count = document.getElementById('kb-admin-count');
-  if (!list) return;
-  if (!currentProfile || currentProfile.role !== 'admin') { list.innerHTML = '<div class="zc-empty">Admin-Anmeldung erforderlich.</div>'; if (count) count.textContent = '0'; return; }
-  var query = (document.getElementById('kb-admin-search').value || '').trim().toLowerCase();
-  // Freigegebene Eintraege stehen im Unterreiter Bibliothek, hier nur die offenen.
-  var drafts = remoteKnowledgeEntries.filter(function(entry) {
-    return entry.status === 'draft' && remoteEntryMatches(entry, query);
-  });
-  if (count) count.textContent = remoteKnowledgeEntries.length;
-  list.innerHTML =
-    '<section class="kb-inbox">' +
-      '<div class="kb-inbox-heading"><h3>Freigabe-Inbox</h3><span class="admin-badge kb-inbox-count">' + drafts.length + ' offen</span></div>' +
-      (drafts.length ? drafts.map(function(entry) { return remoteEntryHtml(entry, { admin: true, editable: true }); }).join('') : '<div class="kb-inbox-empty">Keine Entwürfe warten auf Freigabe.</div>') +
-    '</section>';
-  notebookFitAllRenderedContent(list);
-}
-
 function kbLibraryEntryMatches(entry, query) {
   if (!query) return true;
   var attachmentNames = (entry.knowledge_attachments || []).map(function(file) { return file.original_name || ''; });
@@ -1412,13 +1291,12 @@ function kbLibraryEntryHtml(entry) {
     '</summary>' +
     '<div class="kb-library-entry-content">' +
       '<div class="kb-library-actions">' +
-        '<button class="admin-btn primary" type="button" onclick="kbLibraryEditInline(\'' + entry.id + '\')">Text und Bilder bearbeiten</button>' +
-        // Titel, Kategorie und vor allem das Feld Befehl gibt es nur im Formular.
-        '<button class="admin-mini-btn" type="button" onclick="kbAdminEdit(\'' + entry.id + '\')">Im Formular bearbeiten</button>' +
+        '<button class="admin-btn primary" type="button" onclick="kbLibraryEditInline(\'' + entry.id + '\')">Bearbeiten</button>' +
+        (entry.status === 'draft' ? '<button class="admin-btn" type="button" onclick="publishRemoteEntry(\'' + entry.id + '\')">Freigeben</button>' : '') +
         kbLibraryAttachmentButtons(attachments) +
       '</div>' +
       '<div class="kb-library-editor" data-entry-id="' + entry.id + '"></div>' +
-      remoteEntryHtml(entry, { admin: true, editable: true, hideEdit: true }) +
+      remoteEntryHtml(entry, { admin: true, editable: true }) +
     '</div>' +
   '</details>';
 }
@@ -1512,9 +1390,10 @@ function kbLibraryRender() {
     list.innerHTML = '<div class="kb-inbox-empty">Admin-Anmeldung erforderlich.</div>';
     return;
   }
-  var published = remoteKnowledgeEntries.filter(function(entry) { return entry.status === 'published'; });
+  // Entwuerfe stehen hier mit drin: freigegeben wird in der Bibliothek.
+  var statusFilter = document.getElementById('kb-library-status-filter');
   var selectedCategory = category.value;
-  var categories = published.map(function(entry) { return entry.category || ''; })
+  var categories = remoteKnowledgeEntries.map(function(entry) { return entry.category || ''; })
     .filter(Boolean)
     .filter(function(value, index, values) { return values.indexOf(value) === index; })
     .sort(function(a, b) { return a.localeCompare(b, 'de'); });
@@ -1523,13 +1402,24 @@ function kbLibraryRender() {
   }).join('');
   category.value = categories.indexOf(selectedCategory) >= 0 ? selectedCategory : '';
   var query = search.value.trim().toLowerCase();
-  var entries = published.filter(function(entry) {
-    return (!category.value || entry.category === category.value) && kbLibraryEntryMatches(entry, query);
+  var wantedStatus = statusFilter ? statusFilter.value : '';
+  var entries = remoteKnowledgeEntries.filter(function(entry) {
+    return (!wantedStatus || entry.status === wantedStatus)
+      && (!category.value || entry.category === category.value)
+      && kbLibraryEntryMatches(entry, query);
   });
+  // Entwuerfe zuerst: sie warten auf eine Entscheidung.
+  entries.sort(function(a, b) {
+    if (a.status !== b.status) return a.status === 'draft' ? -1 : 1;
+    return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+  });
+  var openDrafts = remoteKnowledgeEntries.filter(function(entry) { return entry.status === 'draft'; }).length;
   count.textContent = entries.length;
-  list.innerHTML = entries.length
-    ? entries.map(kbLibraryEntryHtml).join('')
-    : '<div class="kb-inbox-empty">Keine freigegebenen Eintraege fuer diese Auswahl gefunden.</div>';
+  list.innerHTML =
+    (openDrafts ? '<div class="kb-library-drafts-note">' + openDrafts + (openDrafts === 1 ? ' Entwurf wartet' : ' Entwürfe warten') + ' auf Freigabe.</div>' : '') +
+    (entries.length
+      ? entries.map(kbLibraryEntryHtml).join('')
+      : '<div class="kb-inbox-empty">Keine Einträge für diese Auswahl gefunden.</div>');
   notebookFitAllRenderedContent(list);
 }
 

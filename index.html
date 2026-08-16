@@ -196,14 +196,12 @@
         </div>
         <div class="admin-field">
           <label for="notebook-category">Kategorie</label>
-          <select id="notebook-category" class="admin-input" required>
-            <option value="Anschlusspläne">Anschlusspläne</option>
-            <option value="Sonderfunktionen">Sonderfunktionen</option>
-            <option value="Befehle">Befehle</option>
-            <option value="Hardware / Einbau">Hardware / Einbau</option>
-            <option value="Fehlerbehebung">Fehlerbehebung</option>
-            <option value="Kundenspezifisch">Kundenspezifisch</option>
-          </select>
+          <!-- Die Auswahl entsteht aus NOTEBOOK_CATEGORIES, siehe kbFillCategoryChoices. -->
+          <select id="notebook-category" class="admin-input" required></select>
+        </div>
+        <div class="admin-field" id="notebook-command-field" hidden>
+          <label for="notebook-command">Befehl (optional)</label>
+          <input id="notebook-command" class="admin-input" type="text" maxlength="200" autocomplete="off">
         </div>
         <div class="admin-field">
           <label for="notebook-content">Text</label>
@@ -263,54 +261,13 @@
   <div class="admin-wrap">
     <section class="admin-panel">
       <nav class="admin-subtabs" aria-label="Wissensdatenbank">
-        <button class="admin-subtab active" type="button" data-admin-view="freigaben">Freigaben &amp; Upload</button>
-        <button class="admin-subtab" type="button" data-admin-view="bibliothek">Bibliothek <span id="kb-library-count" class="admin-badge">0</span></button>
+        <button class="admin-subtab active" type="button" data-admin-view="bibliothek">Bibliothek <span id="kb-library-count" class="admin-badge">0</span></button>
+        <button class="admin-subtab" type="button" data-admin-view="import">Import</button>
       </nav>
-      <div class="admin-subview active" id="admin-sub-freigaben">
-      <div class="admin-layout">
-        <div>
-          <form class="admin-form" id="kb-admin-form">
-            <div id="kb-admin-edit-state" class="kb-edit-state" hidden>
-              <span>Bearbeitung: <strong id="kb-admin-edit-title"></strong></span>
-              <button type="button" class="admin-mini-btn" onclick="kbAdminResetForm()">Bearbeitung beenden</button>
-            </div>
-            <div class="admin-field">
-              <label for="kb-admin-category">Kategorie</label>
-              <input id="kb-admin-category" class="admin-input" type="text" list="kb-category-options" maxlength="80" required>
-              <datalist id="kb-category-options">
-                <option value="Anschlusspläne"></option>
-                <option value="Sonderfunktionen"></option>
-                <option value="Befehle"></option>
-                <option value="Hardware / Einbau"></option>
-                <option value="Fehlerbehebung"></option>
-                <option value="Kundenspezifisch"></option>
-                <option value="Interne Notizen"></option>
-                <option value="Notizen"></option>
-              </datalist>
-            </div>
-            <div class="admin-field">
-              <label for="kb-admin-title">Titel</label>
-              <input id="kb-admin-title" class="admin-input" type="text" maxlength="160" required>
-            </div>
-            <div class="admin-field">
-              <label for="kb-admin-command">Befehl (optional)</label>
-              <input id="kb-admin-command" class="admin-input" type="text" maxlength="200">
-            </div>
-            <div class="admin-field">
-              <label for="kb-admin-content">Information (optional)</label>
-              <textarea id="kb-admin-content" class="admin-textarea" maxlength="3000"></textarea>
-            </div>
-            <div class="admin-field">
-              <input id="kb-admin-replace-pdf" type="file" accept="application/pdf,.pdf" hidden>
-              <div id="kb-admin-current-attachments" class="kb-edit-attachments" hidden></div>
-              <div id="kb-admin-pdf-template-hint" class="pdf-template-hint" aria-live="polite"></div>
-            </div>
-            <div class="admin-actions">
-              <button id="kb-admin-submit" type="submit" class="admin-btn primary">Wissen speichern</button>
-              <button type="button" class="admin-btn" onclick="kbAdminResetForm()">Zurücksetzen</button>
-            </div>
-          </form>
-          <p class="admin-hint">Dateien werden im Unterreiter Bibliothek hinzugefügt: dort landen sie im Text des Eintrags und lassen sich frei anordnen. PDFs bis 25 MB werden automatisch für die KI-Suche indexiert.</p>
+      <div class="admin-subview" id="admin-sub-import">
+        <p class="admin-intro">Aus Dateien Entwürfe anlegen. Freigeben, bearbeiten und ergänzen passiert danach im Unterreiter Bibliothek.</p>
+        <div id="kb-admin-pdf-template-hint" class="pdf-template-hint" aria-live="polite"></div>
+        <div class="admin-layout">
           <section class="kb-pdf-import" aria-labelledby="kb-admin-import-title">
             <h3 id="kb-admin-import-title">PDF-Schnellimport</h3>
             <p class="kb-pdf-import-copy">Jede ausgewählte Anschlussplan-PDF wird ausgelesen und als eigener Entwurf angelegt. Der Titel wird automatisch vorbereitet; erst nach deiner Freigabe ist der Eintrag in der KI-Suche sichtbar.</p>
@@ -338,18 +295,16 @@
             <p class="kb-html-import-note">Wähle den Ordner, in dem genau eine <code>.htm</code>-Datei und der dazugehörige Ordner, zum Beispiel <code>Mercedes EQE_files</code>, liegen.</p>
           </section>
         </div>
-        <div>
-          <div class="admin-tools">
-            <input id="kb-admin-search" class="admin-input" type="search" placeholder="Freigabe-Inbox durchsuchen …" oninput="kbAdminRender()">
-          </div>
-          <div id="kb-admin-list" class="admin-feature-list"></div>
-        </div>
       </div>
-      </div>
-      <div class="admin-subview" id="admin-sub-bibliothek">
-        <p class="admin-intro">Freigegebene Einträge bearbeiten: Text und Bilder im Editor, Anhänge direkt.</p>
+      <div class="admin-subview active" id="admin-sub-bibliothek">
+        <p class="admin-intro">Alle Einträge: Entwürfe freigeben, Text und Dateien im Editor bearbeiten, Anhänge direkt.</p>
         <div class="kb-admin-library-tools">
           <input id="kb-library-search" class="admin-input" type="search" placeholder="Bibliothek durchsuchen …" oninput="kbLibraryRender()">
+          <select id="kb-library-status-filter" class="admin-select" onchange="kbLibraryRender()">
+            <option value="">Alle Einträge</option>
+            <option value="draft">Nur Entwürfe</option>
+            <option value="published">Nur freigegeben</option>
+          </select>
           <select id="kb-library-category" class="admin-select" onchange="kbLibraryRender()">
             <option value="">Alle Kategorien</option>
           </select>
@@ -450,6 +405,7 @@
             <div class="admin-field">
               <label for="tech-category">Kategorie</label>
               <input id="tech-category" class="admin-input" type="text" list="kb-category-options" maxlength="80" required placeholder="Kategorie auswählen oder eingeben …">
+              <datalist id="kb-category-options"></datalist>
             </div>
             <div class="admin-field">
               <label for="tech-title">Titel</label>
@@ -503,7 +459,6 @@
           <button type="button" class="admin-mini-btn" data-kb-pdf-tool="text" onclick="kbPdfEditorSetTool('text')">Text</button>
           <button type="button" class="admin-mini-btn" data-kb-pdf-tool="marker" onclick="kbPdfEditorSetTool('marker')">Markieren</button>
           <button type="button" class="admin-mini-btn" data-kb-pdf-tool="arrow" onclick="kbPdfEditorSetTool('arrow')">Zeiger</button>
-          <button type="button" class="admin-mini-btn" data-kb-pdf-tool="image" onclick="kbPdfEditorSetTool('image')">Foto</button>
         </div>
         <div class="admin-field">
           <label for="kb-pdf-editor-text">Text für Hinweis oder Auswahl</label>
@@ -514,16 +469,20 @@
           <input id="kb-pdf-editor-size" class="admin-input" type="number" min="8" max="48" value="14">
         </div>
         <div class="admin-field">
-          <label for="kb-pdf-editor-color">Farbe</label>
-          <input id="kb-pdf-editor-color" class="admin-input" type="color" value="#000000">
+          <label for="kb-pdf-editor-line">Pfeilstärke</label>
+          <input id="kb-pdf-editor-line" class="admin-input" type="number" min="1.5" max="10" step="0.5" value="2.5">
         </div>
         <div class="admin-field">
-          <label for="kb-pdf-editor-image">Foto einfügen</label>
-          <label for="kb-pdf-editor-image" class="admin-mini-btn">Foto auswählen</label>
-          <input id="kb-pdf-editor-image" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png">
-          <div id="kb-pdf-editor-image-name" class="kb-pdf-editor-image-name"></div>
+          <label for="kb-pdf-editor-color">Farbe</label>
+          <div class="kb-pdf-editor-colors">
+            <label class="notebook-format-color has-swatch" title="Farbe wählen">
+              <span class="notebook-format-letter" aria-hidden="true">A</span>
+              <input id="kb-pdf-editor-color" type="color" value="#cc0000" aria-label="Farbe wählen">
+            </label>
+            <div class="kb-pdf-editor-swatches" id="kb-pdf-editor-swatches"></div>
+          </div>
         </div>
-        <p id="kb-pdf-editor-help" class="kb-pdf-editor-help">Text oder Foto auf die gewünschte Position klicken. Bei Markieren und Zeiger mit gedrückter Maustaste ziehen. Mit Auswahl kannst du Elemente verschieben, ihren Text ändern oder löschen. Beim ausgewählten Zeiger drehen oder verlängern die runden Griffe an seinen Enden den Pfeil.</p>
+        <p id="kb-pdf-editor-help" class="kb-pdf-editor-help">Text auf die gewünschte Position klicken. Bei Markieren und Zeiger mit gedrückter Maustaste ziehen. Mit Auswahl kannst du Elemente verschieben, ihren Text ändern oder löschen. Beim ausgewählten Zeiger drehen oder verlängern die runden Griffe an seinen Enden den Pfeil.</p>
         <div class="admin-actions">
           <button id="kb-pdf-editor-apply-selection" type="button" class="admin-mini-btn" onclick="kbPdfEditorApplySelectedStyle()" disabled>Auswahl aktualisieren</button>
           <button id="kb-pdf-editor-delete-selection" type="button" class="admin-mini-btn delete" onclick="kbPdfEditorDeleteSelected()" disabled>Auswahl löschen</button>

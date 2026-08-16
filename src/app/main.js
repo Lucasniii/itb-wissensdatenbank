@@ -33,8 +33,25 @@ document.querySelectorAll('.admin-subtab').forEach(function(button) {
   button.addEventListener('click', function() { showAdminSubview(button.dataset.adminView); });
 });
 
+// Auswahlfeld im Editor und Vorschlagsliste im Entwurfs-Formular stammen aus
+// derselben Liste. Vorher standen die Kategorien dreimal im Dokument.
+function kbFillCategoryChoices() {
+  var select = document.getElementById('notebook-category');
+  if (select) {
+    select.innerHTML = NOTEBOOK_CATEGORIES.map(function(value) {
+      return '<option value="' + zcEsc(value) + '">' + zcEsc(value) + '</option>';
+    }).join('');
+  }
+  var datalist = document.getElementById('kb-category-options');
+  if (datalist) {
+    datalist.innerHTML = NOTEBOOK_CATEGORIES.map(function(value) {
+      return '<option value="' + zcEsc(value) + '"></option>';
+    }).join('');
+  }
+}
+
+kbFillCategoryChoices();
 adminRender();
-kbAdminRender();
 notebookRender();
 
 document.getElementById('auth-open').addEventListener('click', authOpen);
@@ -43,14 +60,17 @@ document.getElementById('auth-switch').addEventListener('click', function() { se
 document.getElementById('auth-signout').addEventListener('click', async function() { await supabaseClient.auth.signOut(); currentSession = null; currentProfile = null; remoteKnowledgeEntries = []; updateAuthUI(); showActiveView('zconfig'); });
 document.getElementById('kb-ai-form').addEventListener('submit', async function(event) { event.preventDefault(); await kbAiSearch(); });
 document.getElementById('kb-ai-index').addEventListener('click', async function() { await kbAiIndexAll(); });
-// Das Dateifeld im Wissens-Formular gibt es nicht mehr; hochgeladen wird in der
-// Bibliothek. Der Schnellimport unten benutzt seine eigenen Felder.
-var kbAdminPdfInput = document.getElementById('kb-admin-pdfs');
-if (kbAdminPdfInput) kbAdminPdfInput.addEventListener('change', kbAutofillTitleFromPdfTemplate);
-document.getElementById('kb-admin-replace-pdf').addEventListener('change', kbHandleRemotePdfReplacementSelection);
-document.getElementById('kb-pdf-editor-image').addEventListener('change', kbPdfEditorSelectImage);
-document.getElementById('kb-pdf-editor-color').addEventListener('input', function() { kbPdfEditorApplySelectedColor(false); });
-document.getElementById('kb-pdf-editor-color').addEventListener('change', function() { kbPdfEditorApplySelectedColor(true); });
+// Das Wissens-Formular ist entfallen. Bearbeitet und freigegeben wird in der
+// Bibliothek, angelegt ueber den Import oder das Notizbuch.
+document.getElementById('kb-pdf-editor-line').addEventListener('input', function() { kbPdfEditorApplySelectedLineWidth(false); });
+document.getElementById('kb-pdf-editor-line').addEventListener('change', function() { kbPdfEditorApplySelectedLineWidth(true); });
+document.getElementById('kb-pdf-editor-color').addEventListener('input', function() { kbPdfEditorRenderSwatches(); kbPdfEditorApplySelectedColor(false); });
+document.getElementById('kb-pdf-editor-color').addEventListener('change', function() { kbPdfEditorRenderSwatches(); kbPdfEditorApplySelectedColor(true); });
+document.getElementById('kb-pdf-editor-swatches').addEventListener('click', function(event) {
+  var swatch = event.target.closest('[data-kb-pdf-color]');
+  if (swatch) kbPdfEditorPickColor(swatch.dataset.kbPdfColor);
+});
+kbPdfEditorRenderSwatches();
 document.getElementById('kb-pdf-editor-text').addEventListener('input', function() { kbPdfEditorApplySelectedText(false); });
 document.getElementById('kb-pdf-editor-text').addEventListener('change', function() { kbPdfEditorApplySelectedText(true); });
 document.getElementById('kb-pdf-editor-size').addEventListener('input', function() { kbPdfEditorApplySelectedFontSize(false); });

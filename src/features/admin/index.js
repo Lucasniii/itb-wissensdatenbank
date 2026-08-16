@@ -1,6 +1,8 @@
 var FROZEN_THRESHOLD = 20;
 var NOTEBOOK_ENTRY_MARKER = '__itb_notebook__';
-var NOTEBOOK_CATEGORIES = ['Anschlusspläne', 'Sonderfunktionen', 'Befehle', 'Hardware / Einbau', 'Fehlerbehebung', 'Kundenspezifisch'];
+// Einzige Quelle fuer die Kategorien. Auswahlfeld und Vorschlagsliste werden
+// daraus gefuellt, damit die Listen nicht auseinanderlaufen.
+var NOTEBOOK_CATEGORIES = ['Anschlusspläne', 'Sonderfunktionen', 'Befehle', 'Hardware', 'Fehlerbehebung', 'Kundenspezifisch'];
 
 // Gehoert der Eintrag ins Notizbuch? Entscheidet ueber die Liste "Meine Notizen".
 function isNotebookEntry(entry) {
@@ -469,8 +471,11 @@ async function kbOpenPdf(id) {
   }
 }
 
+// Das Wissens-Formular ist entfallen; die lokale Fassung ohne Supabase lief
+// darueber. Die Funktionen bleiben nur noch als Rueckfall bestehen.
 function kbAdminResetForm() {
   var form = document.getElementById('kb-admin-form');
+  if (!form) return;
   form.reset();
   form.removeAttribute('data-kb-id');
   delete form.dataset.notebookEntry;
@@ -566,8 +571,8 @@ async function kbHandleRemotePdfReplacementSelection() {
 
 function kbAdminEdit(id) {
   var entry = kbGetEntry(id);
-  if (!entry) return;
   var form = document.getElementById('kb-admin-form');
+  if (!entry || !form) return;
   form.setAttribute('data-kb-id', entry.id);
   document.getElementById('kb-admin-category').value = entry.category;
   document.getElementById('kb-admin-title').value = entry.title;
@@ -783,41 +788,4 @@ document.getElementById('admin-form').addEventListener('submit', function(event)
   adminResetForm();
   adminRender();
   if (zcBits.length) zcRender();
-});
-
-document.getElementById('kb-admin-form').addEventListener('submit', async function(event) {
-  event.preventDefault();
-  if (supabaseClient) {
-    await kbAdminSubmitRemote();
-    return;
-  }
-  var form = document.getElementById('kb-admin-form');
-  var existingEntry = kbGetEntry(form.getAttribute('data-kb-id'));
-  var entry = kbNormalizeEntry({
-    id: form.getAttribute('data-kb-id') || undefined,
-    category: document.getElementById('kb-admin-category').value,
-    title: document.getElementById('kb-admin-title').value,
-    command: document.getElementById('kb-admin-command').value,
-    content: document.getElementById('kb-admin-content').value,
-    pdfs: existingEntry ? existingEntry.pdfs : []
-  });
-  if (!entry) return;
-  // Das Dateifeld im Formular ist entfallen, hochgeladen wird in der Bibliothek.
-  var localPdfInput = document.getElementById('kb-admin-pdfs');
-  var files = Array.prototype.slice.call(localPdfInput && localPdfInput.files || []);
-  var preparedFiles;
-  try {
-    preparedFiles = await kbPreparePdfFiles(files, kbStoredPdfReferences());
-    for (var fi = 0; fi < preparedFiles.length; fi++) entry.pdfs.push(await kbStorePdf(preparedFiles[fi].file, preparedFiles[fi].contentSha256));
-  } catch (err) {
-    kbSetPdfTemplateHint(err.message, 'error');
-    alert('PDF konnte nicht gespeichert werden: ' + err.message);
-    return;
-  }
-  kbEntries = kbEntries.filter(function(item) { return item.id !== entry.id; });
-  kbEntries.push(entry);
-  kbSaveEntries();
-  kbAdminResetForm();
-  kbAdminRender();
-  kbRenderSearch();
 });

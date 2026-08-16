@@ -20,7 +20,9 @@
   .notebook-inline-image:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
   .notebook-inline-image:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .notebook-inline-image-placeholder { display: inline-block; margin: 7px; padding: 8px; border: 1px dashed var(--border); color: var(--muted); font-size: 0.65rem; }
-  .notebook-rendered-content { margin-top: 9px; color: var(--text); font-size: 0.72rem; line-height: 1.55; white-space: pre-wrap; }
+  /* Die Bilder liegen absolut. Ohne eigenen Bezugsrahmen richten sie sich an der
+     Seite aus und stehen dann ausserhalb der Notiz. */
+  .notebook-rendered-content { position: relative; overflow: hidden; margin-top: 9px; color: var(--text); font-size: 0.72rem; line-height: 1.55; white-space: pre-wrap; }
   .notebook-rendered-content .notebook-inline-image { cursor: zoom-in; }
   .notebook-attachments { display: grid; gap: 7px; padding: 11px; border: 1px dashed var(--border); background: rgba(0,0,0,0.13); }
   .notebook-attachments-copy { color: var(--muted); font-size: 0.64rem; line-height: 1.45; }

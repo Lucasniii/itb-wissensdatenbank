@@ -88,10 +88,6 @@
   .notebook-rendered-content { position: relative; overflow: hidden; margin-top: 9px; padding: 12px; color: var(--text); font-size: 0.75rem; line-height: 1.6; white-space: pre-wrap; }
   .notebook-rendered-content .notebook-inline-image { cursor: zoom-in; }
   .notebook-rendered-content .notebook-inline-image:hover { border-color: var(--accent); filter: brightness(1.06); }
-  .notebook-attachments { display: grid; gap: 7px; padding: 11px; border: 1px dashed var(--border); background: rgba(0,0,0,0.13); }
-  .notebook-attachments-copy { color: var(--muted); font-size: 0.64rem; line-height: 1.45; }
-  .notebook-file-preview { display: flex; gap: 7px; flex-wrap: wrap; min-height: 0; }
-  .notebook-file-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 5px 7px; border: 1px solid var(--border); color: var(--muted); font-size: 0.62rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .notebook-edit-state { display: none; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 1px solid rgba(203,214,83,0.35); color: var(--text); font-size: 0.67rem; }
   .notebook-edit-state.visible { display: flex; }
   .notebook-list { display: grid; gap: 10px; margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--border); }

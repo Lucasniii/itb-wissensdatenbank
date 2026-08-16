@@ -1049,16 +1049,6 @@ function notebookEntries() {
   return (remoteKnowledgeEntries || []).filter(isNotebookEntry);
 }
 
-function notebookRenderSelectedFiles() {
-  var input = document.getElementById('notebook-files');
-  var preview = document.getElementById('notebook-file-preview');
-  if (!preview) return;
-  var files = Array.from(input && input.files || []);
-  preview.innerHTML = files.map(function(file) {
-    return '<span class="notebook-file-chip">' + zcEsc(attachmentKind(kbIsPdfFile(file) ? 'application/pdf' : (file.type || 'image/jpeg'))) + ': ' + zcEsc(file.name) + '</span>';
-  }).join('');
-}
-
 function notebookSetEditState(entry) {
   var state = document.getElementById('notebook-edit-state');
   var title = document.getElementById('notebook-edit-title');
@@ -1084,7 +1074,6 @@ function notebookResetForm() {
   form.removeAttribute('data-kb-notebook');
   document.getElementById('notebook-category').value = NOTEBOOK_CATEGORIES[0];
   notebookSetEditorContent('', null);
-  document.getElementById('notebook-file-preview').innerHTML = '';
   notebookSetStatus('', '');
   notebookSetEditState(null);
   // Steht das Formular gerade in einem Bibliothek-Eintrag, gehoert es zurueck
@@ -1140,8 +1129,6 @@ function notebookLoadIntoEditor(entry, options) {
   }
   select.value = entry.category || NOTEBOOK_CATEGORIES[0];
   notebookSetEditorContent(entry.content || '', entry);
-  document.getElementById('notebook-files').value = '';
-  document.getElementById('notebook-file-preview').innerHTML = '';
   notebookSetEditState(entry);
   notebookSetStatus('', '');
   if (!options.keepView) showActiveView('notebook');
@@ -1182,11 +1169,12 @@ async function notebookSave() {
       : await supabaseClient.from('knowledge_entries').insert(Object.assign({}, payload, { status: 'draft', submitted_by: currentSession.user.id })).select('id,status').single();
     if (response.error) throw response.error;
 
-    var files = Array.from(document.getElementById('notebook-files').files || []);
+    // Alles Hochgeladene steht im Textfeld, es gibt keinen zweiten Weg mehr
+    // daneben. Die Reihenfolge der Rueckgabe entspricht der Reihenfolge hier.
     var pendingInlineImages = notebookInlineImages.filter(function(item) { return !item.attachmentId; });
-    var uploadedAttachments = await uploadRemoteAttachments(response.data.id, files.concat(pendingInlineImages.map(function(item) { return item.file; })));
+    var uploadedAttachments = await uploadRemoteAttachments(response.data.id, pendingInlineImages.map(function(item) { return item.file; }));
     pendingInlineImages.forEach(function(item, index) {
-      var uploaded = uploadedAttachments[files.length + index];
+      var uploaded = uploadedAttachments[index];
       if (!uploaded || !uploaded.attachment) throw new Error('Die Datei konnte nicht in die Notiz eingefügt werden.');
       item.attachmentId = uploaded.attachment.id;
       var image = notebookFindInlineImage('local:' + item.localId);

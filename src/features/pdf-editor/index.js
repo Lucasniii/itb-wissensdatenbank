@@ -969,11 +969,11 @@ async function kbSaveDirectPdfEditor() {
     var filename = state.attachment.original_name;
     var file = new File([updatedBytes], filename, { type: 'application/pdf' });
     await kbSaveEditablePdf(state.entry, state.attachment, file, state.baseStoragePath, state.annotations);
-    var editingId = document.getElementById('kb-admin-form').getAttribute('data-kb-id');
     await loadRemoteKnowledge();
-    var refreshedEntry = remoteKnowledgeEntries.find(function(entry) { return entry.id === state.entry.id; });
     kbCloseDirectPdfEditor();
-    if (editingId === state.entry.id && refreshedEntry) kbSetAdminEditState(refreshedEntry);
+    // Die bearbeitete PDF liegt jetzt woanders. Ein offener Editor zeigt sonst
+    // weiter die alte Fassung.
+    if (typeof notebookRefreshInlineImageSources === 'function') notebookRefreshInlineImageSources();
     kbSetPdfTemplateHint('Bearbeitete PDF wurde ersetzt. Texte, Markierungen und Zeiger bleiben künftig editierbar.', 'success');
   } catch (error) {
     kbPdfEditorStatus('Speichern fehlgeschlagen: ' + (error && error.message ? error.message : 'Unbekannter Fehler'), 'error');
@@ -1043,12 +1043,8 @@ async function kbSaveDirectImageEditor() {
     var blob = await kbPdfEditorCanvasBlob(exportCanvas, mimeType);
     var file = new File([blob], kbPdfEditorEditedImageName(state.attachment, mimeType), { type: mimeType, lastModified: Date.now() });
     await kbSaveEditableImage(state.entry, state.attachment, file, state.baseStoragePath, state.annotations);
-    var form = document.getElementById('kb-admin-form');
-    var editingId = form ? form.getAttribute('data-kb-id') : '';
     await loadRemoteKnowledge();
-    var refreshedEntry = remoteKnowledgeEntries.find(function(entry) { return entry.id === state.entry.id; });
     kbCloseDirectPdfEditor();
-    if (editingId === state.entry.id && refreshedEntry && typeof kbSetAdminEditState === 'function') kbSetAdminEditState(refreshedEntry);
     // Das bearbeitete Bild liegt jetzt woanders. Ein offener Notizbuch-Editor
     // zeigt sonst weiter die alte Fassung.
     if (typeof notebookRefreshInlineImageSources === 'function') notebookRefreshInlineImageSources();

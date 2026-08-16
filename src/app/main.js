@@ -34,7 +34,6 @@ document.querySelectorAll('.admin-subtab').forEach(function(button) {
 });
 
 adminRender();
-kbAdminRender();
 notebookRender();
 
 document.getElementById('auth-open').addEventListener('click', authOpen);
@@ -43,11 +42,8 @@ document.getElementById('auth-switch').addEventListener('click', function() { se
 document.getElementById('auth-signout').addEventListener('click', async function() { await supabaseClient.auth.signOut(); currentSession = null; currentProfile = null; remoteKnowledgeEntries = []; updateAuthUI(); showActiveView('zconfig'); });
 document.getElementById('kb-ai-form').addEventListener('submit', async function(event) { event.preventDefault(); await kbAiSearch(); });
 document.getElementById('kb-ai-index').addEventListener('click', async function() { await kbAiIndexAll(); });
-// Das Dateifeld im Wissens-Formular gibt es nicht mehr; hochgeladen wird in der
-// Bibliothek. Der Schnellimport unten benutzt seine eigenen Felder.
-var kbAdminPdfInput = document.getElementById('kb-admin-pdfs');
-if (kbAdminPdfInput) kbAdminPdfInput.addEventListener('change', kbAutofillTitleFromPdfTemplate);
-document.getElementById('kb-admin-replace-pdf').addEventListener('change', kbHandleRemotePdfReplacementSelection);
+// Das Wissens-Formular ist entfallen. Bearbeitet und freigegeben wird in der
+// Bibliothek, angelegt ueber den Import oder das Notizbuch.
 document.getElementById('kb-pdf-editor-image').addEventListener('change', kbPdfEditorSelectImage);
 document.getElementById('kb-pdf-editor-color').addEventListener('input', function() { kbPdfEditorApplySelectedColor(false); });
 document.getElementById('kb-pdf-editor-color').addEventListener('change', function() { kbPdfEditorApplySelectedColor(true); });

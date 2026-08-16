@@ -12,6 +12,23 @@ document.querySelectorAll('.tab').forEach(function(tab) {
   });
 });
 
+// Unterreiter im Adminbereich. Wird auch von aussen aufgerufen, etwa wenn aus der
+// Bibliothek heraus das Formular geoeffnet wird.
+function showAdminSubview(name) {
+  var panel = document.getElementById('admin-sub-' + name);
+  if (!panel) return;
+  document.querySelectorAll('.admin-subtab').forEach(function(button) {
+    button.classList.toggle('active', button.dataset.adminView === name);
+  });
+  document.querySelectorAll('.admin-subview').forEach(function(view) {
+    view.classList.toggle('active', view === panel);
+  });
+}
+
+document.querySelectorAll('.admin-subtab').forEach(function(button) {
+  button.addEventListener('click', function() { showAdminSubview(button.dataset.adminView); });
+});
+
 adminRender();
 kbAdminRender();
 notebookRender();

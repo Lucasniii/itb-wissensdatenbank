@@ -396,6 +396,19 @@
   /* ── ADMIN ── */
   .admin-wrap { width: 100%; }
   .admin-intro { color: var(--muted); font-size: 0.75rem; line-height: 1.6; margin-bottom: 20px; }
+  /* ── Unterreiter im Adminbereich ── */
+  .admin-subtabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 20px; border-bottom: 1px solid var(--border); }
+  .admin-subtab {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 9px 16px; background: transparent; color: var(--muted);
+    font-family: 'Roboto', Arial, sans-serif; font-weight: 700; font-size: 0.74rem;
+    letter-spacing: 0.05em; border: none; border-bottom: 2px solid transparent;
+    cursor: pointer; transition: color 0.15s, border-color 0.15s;
+  }
+  .admin-subtab:hover { color: var(--text); }
+  .admin-subtab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .admin-subview { display: none; }
+  .admin-subview.active { display: block; }
   .admin-layout { display: grid; grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.4fr); gap: 20px; align-items: start; }
   .admin-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 3px; padding: 20px; }
   .admin-panel h2 { font-family: 'Roboto', Arial, sans-serif; font-size: 1rem; letter-spacing: 0.04em; margin-bottom: 16px; }

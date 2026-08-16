@@ -1116,6 +1116,9 @@ async function kbAdminEdit(id) {
   document.getElementById('kb-admin-command').value = isNotebookEntry(entry) ? '' : (entry.command || '');
   document.getElementById('kb-admin-content').value = entry.content;
   kbSetAdminEditState(entry);
+  // Das Formular liegt im Unterreiter Freigaben & Upload. Aus der Bibliothek
+  // heraus muss der Reiter darum mitwechseln, sonst scrollt es ins Verborgene.
+  if (typeof showAdminSubview === 'function') showAdminSubview('freigaben');
   form.scrollIntoView({ behavior: 'smooth', block: 'start' });
   document.getElementById('kb-admin-title').focus();
 }

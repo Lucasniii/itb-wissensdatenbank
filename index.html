@@ -241,6 +241,11 @@
   <div class="admin-wrap">
     <section class="admin-panel">
       <h2>Wissensdatenbank <span id="kb-admin-count" class="admin-badge">0</span></h2>
+      <nav class="admin-subtabs">
+        <button class="admin-subtab active" type="button" data-admin-view="freigaben">Freigaben &amp; Upload</button>
+        <button class="admin-subtab" type="button" data-admin-view="bibliothek">Bibliothek <span id="kb-library-count" class="admin-badge">0</span></button>
+      </nav>
+      <div class="admin-subview active" id="admin-sub-freigaben">
       <div class="admin-layout">
         <div>
           <form class="admin-form" id="kb-admin-form">
@@ -319,24 +324,18 @@
             <input id="kb-admin-search" class="admin-input" type="search" placeholder="Freigabe-Inbox durchsuchen …" oninput="kbAdminRender()">
           </div>
           <div id="kb-admin-list" class="admin-feature-list"></div>
-          <details class="kb-admin-library">
-            <summary class="kb-admin-library-head">
-              <span>
-                <span id="kb-library-title" class="kb-admin-library-title">Bibliothek <span id="kb-library-count" class="admin-badge">0</span></span>
-                <span class="kb-admin-library-copy">Freigegebene Einträge bearbeiten: Text und Bilder im Editor, Anhänge direkt</span>
-              </span>
-            </summary>
-            <div class="kb-admin-library-body">
-              <div class="kb-admin-library-tools">
-                <input id="kb-library-search" class="admin-input" type="search" placeholder="Bibliothek durchsuchen …" oninput="kbLibraryRender()">
-                <select id="kb-library-category" class="admin-select" onchange="kbLibraryRender()">
-                  <option value="">Alle Kategorien</option>
-                </select>
-              </div>
-              <div id="kb-library-list" class="kb-library-list"></div>
-            </div>
-          </details>
         </div>
+      </div>
+      </div>
+      <div class="admin-subview" id="admin-sub-bibliothek">
+        <p class="admin-intro">Freigegebene Einträge bearbeiten: Text und Bilder im Editor, Anhänge direkt.</p>
+        <div class="kb-admin-library-tools">
+          <input id="kb-library-search" class="admin-input" type="search" placeholder="Bibliothek durchsuchen …" oninput="kbLibraryRender()">
+          <select id="kb-library-category" class="admin-select" onchange="kbLibraryRender()">
+            <option value="">Alle Kategorien</option>
+          </select>
+        </div>
+        <div id="kb-library-list" class="kb-library-list"></div>
       </div>
       <div class="kb-ai-index">
         <div>
